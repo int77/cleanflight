@@ -77,7 +77,8 @@ static accDeadband_t *accDeadband;
 STATIC_UNIT_TESTED float q0 = 1.0f, q1 = 0.0f, q2 = 0.0f, q3 = 0.0f;    // quaternion of sensor frame relative to earth frame
 static float rMat[3][3];
 
-attitudeEulerAngles_t attitude = { { 0, 0, 0 } };     // absolute angle inclination in multiple of 0.1 degree    180 deg = 1800
+attitudeEulerAngles_t attitude = { { 0, 0, 0 } };    // absolute angle inclination in multiple of 0.1 degree    180 deg = 1800
+attitudeEstGravity_t gravity;                        // estimated gravity vector in multiples of 0.001*g 		1g = 1000
 
 static float gyroScale;
 
@@ -428,6 +429,11 @@ static void imuCalculateEstimatedAttitude(void)
     imuUpdateEulerAngles();
 
     imuCalculateAcceleration(deltaT); // rotate acc vector into earth frame
+
+    // Calculate gravity vector
+     gravity.X = -rMat[2][1]*1000;
+     gravity.Y =  rMat[2][0]*1000;
+     gravity.Z = -rMat[2][2]*1000;
 }
 
 void imuUpdateAccelerometer(rollAndPitchTrims_t *accelerometerTrims)
