@@ -340,9 +340,9 @@ static void imuMahonyAHRSupdate(float dt, float gx, float gy, float gz,
 STATIC_UNIT_TESTED void imuUpdateEulerAngles(void)
 {
     /* Compute pitch/roll angles */
-    attitude.values.roll = lrintf(atan2_approx(rMat[2][1], rMat[2][2]) * (1800.0f / M_PIf));
-    attitude.values.pitch = lrintf(((0.5f * M_PIf) - acos_approx(-rMat[2][0])) * (1800.0f / M_PIf));
-    attitude.values.yaw = lrintf((-atan2_approx(rMat[1][0], rMat[0][0]) * (1800.0f / M_PIf) + magneticDeclination));
+    attitude.values.roll = lrintf(atan2f(rMat[2][1], rMat[2][2]) * (1800.0f / M_PIf));
+    attitude.values.pitch = lrintf(((0.5f * M_PIf) - acosf(-rMat[2][0])) * (1800.0f / M_PIf));
+    attitude.values.yaw = lrintf((-atan2f(rMat[1][0], rMat[0][0]) * (1800.0f / M_PIf) + magneticDeclination));
 
     if (attitude.values.yaw < 0)
         attitude.values.yaw += 3600;
@@ -377,7 +377,8 @@ static bool isMagnetometerHealthy(void)
 
 static void imuCalculateEstimatedAttitude(void)
 {
-    static filterStatePt1_t accLPFState[3];
+    static biquad_t accLPFState[3];
+    static bool accStateIsSet;
     static uint32_t previousIMUUpdateTime;
     float rawYawError = 0;
     int32_t axis;
@@ -391,8 +392,13 @@ static void imuCalculateEstimatedAttitude(void)
 
     // Smooth and use only valid accelerometer readings
     for (axis = 0; axis < 3; axis++) {
-        if (imuRuntimeConfig->acc_cut_hz > 0) {
-            accSmooth[axis] = filterApplyPt1(accADC[axis], &accLPFState[axis], imuRuntimeConfig->acc_cut_hz, deltaT * 1e-6f);
+        if (imuRuntimeConfig->acc_cut_hz) {
+            if (accStateIsSet) {
+                accSmooth[axis] = lrintf(applyBiQuadFilter((float) accADC[axis], &accLPFState[axis]));
+            } else {
+                for (axis = 0; axis < 3; axis++) BiQuadNewLpf(imuRuntimeConfig->acc_cut_hz, &accLPFState[axis], 1000);
+                accStateIsSet = true;
+            }
         } else {
             accSmooth[axis] = accADC[axis];
         }
@@ -460,7 +466,7 @@ int16_t calculateThrottleAngleCorrection(uint8_t throttle_correction_value)
     if (rMat[2][2] <= 0.015f) {
         return 0;
     }
-    int angle = lrintf(acos_approx(rMat[2][2]) * throttleAngleScale);
+    int angle = lrintf(acosf(rMat[2][2]) * throttleAngleScale);
     if (angle > 900)
         angle = 900;
     return lrintf(throttle_correction_value * sin_approx(angle / (900.0f * M_PIf / 2.0f)));

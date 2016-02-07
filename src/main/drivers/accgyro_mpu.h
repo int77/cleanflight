@@ -126,17 +126,6 @@ typedef struct mpuConfiguration_s {
 
 extern mpuConfiguration_t mpuConfiguration;
 
-enum lpf_e {
-    INV_FILTER_256HZ_NOLPF2 = 0,
-    INV_FILTER_188HZ,
-    INV_FILTER_98HZ,
-    INV_FILTER_42HZ,
-    INV_FILTER_20HZ,
-    INV_FILTER_10HZ,
-    INV_FILTER_5HZ,
-    INV_FILTER_2100HZ_NOLPF,
-    NUM_FILTER
-};
 enum gyro_fsr_e {
     INV_FSR_250DPS = 0,
     INV_FSR_500DPS,
@@ -183,4 +172,4 @@ void mpuIntExtiInit(void);
 bool mpuAccRead(int16_t *accData);
 bool mpuGyroRead(int16_t *gyroADC);
 mpuDetectionResult_t *detectMpu(const extiConfig_t *configToUse);
-bool mpuIsDataReady(void);
+void checkMPUDataReady(bool *mpuDataReadyPtr);

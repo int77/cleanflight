@@ -91,11 +91,19 @@ enum {
     ALIGN_MAG = 2
 };
 
+//#define JITTER_DEBUG 0  // Specify debug value for jitter debug
+
 /* VBAT monitoring interval (in microseconds) - 1s*/
 #define VBATINTERVAL (6 * 3500)
 /* IBat monitoring interval (in microseconds) - 6 default looptimes */
 #define IBATINTERVAL (6 * 3500)
-#define GYRO_WATCHDOG_DELAY 100  // Watchdog for boards without interrupt for gyro
+
+#define GYRO_WATCHDOG_DELAY 100 // Watchdog delay for gyro sync
+
+// AIR MODE Reset timers
+#define ERROR_RESET_DEACTIVATE_DELAY (1 * 1000)   // 1 sec delay to disable AIR MODE Iterm resetting
+bool preventItermWindup = false;
+static bool ResetErrorActivated = true;
 
 uint16_t cycleTime = 0;         // this is the number in micro second to achieve a full loop, it can differ a little and is taken into account in the PID loop
 
@@ -110,11 +118,9 @@ int16_t telemTemperature1;      // gyro sensor temperature
 static uint32_t disarmAt;     // Time of automatic disarm when "Don't spin the motors when armed" is enabled and auto_disarm_delay is nonzero
 
 extern uint32_t currentTime;
-extern uint8_t dynP8[3], dynI8[3], dynD8[3], PIDweight[3];
+extern uint8_t PIDweight[3];
 
 static bool isRXDataNew;
-static filterStatePt1_t filteredCycleTimeState;
-uint16_t filteredCycleTime;
 
 typedef void (*pidControllerFuncPtr)(pidProfile_t *pidProfile, controlRateConfig_t *controlRateConfig,
         uint16_t max_angle_inclination, rollAndPitchTrims_t *angleTrim, rxConfig_t *rxConfig);            // pid controller function prototype
@@ -166,6 +172,57 @@ bool isCalibrating()
     return (!isAccelerationCalibrationComplete() && sensors(SENSOR_ACC)) || (!isGyroCalibrationComplete());
 }
 
+void filterRc(void){
+    static int16_t lastCommand[4] = { 0, 0, 0, 0 };
+    static int16_t deltaRC[4] = { 0, 0, 0, 0 };
+    static int16_t factor, rcInterpolationFactor;
+    uint16_t rxRefreshRate;
+    static biquad_t filteredCycleTimeState;
+    static bool filterIsSet;
+    uint16_t filteredCycleTime;
+
+    // Set RC refresh rate for sampling and channels to filter
+    initRxRefreshRate(&rxRefreshRate);
+
+    /* Initialize cycletime filter */
+    if (!filterIsSet) {
+        BiQuadNewLpf(1, &filteredCycleTimeState, 0);
+        filterIsSet = true;
+    }
+
+    filteredCycleTime = applyBiQuadFilter((float) cycleTime, &filteredCycleTimeState);
+
+    rcInterpolationFactor = rxRefreshRate / filteredCycleTime + 1;
+
+    if (isRXDataNew) {
+        for (int channel=0; channel < 4; channel++) {
+            deltaRC[channel] = rcCommand[channel] -  (lastCommand[channel] - deltaRC[channel] * factor / rcInterpolationFactor);
+            lastCommand[channel] = rcCommand[channel];
+        }
+
+        isRXDataNew = false;
+        factor = rcInterpolationFactor - 1;
+    } else {
+        factor--;
+    }
+
+    // Interpolate steps of rcCommand
+    if (factor > 0) {
+        for (int channel=0; channel < 4; channel++) {
+            rcCommand[channel] = lastCommand[channel] - deltaRC[channel] * factor/rcInterpolationFactor;
+         }
+    } else {
+        factor = 0;
+    }
+}
+
+void scaleRcCommandToFpvCamAngle(void) {
+    int16_t roll = rcCommand[ROLL];
+    int16_t yaw = rcCommand[YAW];
+    rcCommand[ROLL] = constrain(cos(masterConfig.rxConfig.fpvCamAngleDegrees*RAD) * roll + sin(masterConfig.rxConfig.fpvCamAngleDegrees*RAD) * yaw, -500, 500);
+    rcCommand[YAW] = constrain(cos(masterConfig.rxConfig.fpvCamAngleDegrees*RAD) * yaw + sin(masterConfig.rxConfig.fpvCamAngleDegrees*RAD) * roll, -500, 500);
+}
+
 void annexCode(void)
 {
     int32_t tmp, tmp2;
@@ -209,10 +266,6 @@ void annexCode(void)
             rcCommand[axis] = (lookupYawRC[tmp2] + (tmp - tmp2 * 100) * (lookupYawRC[tmp2 + 1] - lookupYawRC[tmp2]) / 100) * -masterConfig.yaw_control_direction;
             prop1 = 100 - (uint16_t)currentControlRateProfile->rates[axis] * ABS(tmp) / 500;
         }
-        // FIXME axis indexes into pids.  use something like lookupPidIndex(rc_alias_e alias) to reduce coupling.
-        dynP8[axis] = (uint16_t)currentProfile->pidProfile.P8[axis] * prop1 / 100;
-        dynI8[axis] = (uint16_t)currentProfile->pidProfile.I8[axis] * prop1 / 100;
-        dynD8[axis] = (uint16_t)currentProfile->pidProfile.D8[axis] * prop1 / 100;
 
         // non coupled PID reduction scaler used in PID controller 1 and PID controller 2. YAW TPA disabled. 100 means 100% of the pids
         if (axis == YAW) {
@@ -240,6 +293,15 @@ void annexCode(void)
         rcCommand[PITCH] = rcCommand_PITCH;
     }
 
+    if (masterConfig.rxConfig.rcSmoothing || flightModeFlags) {
+        filterRc();
+    }
+
+    // experimental scaling of RC command to FPV cam angle
+    if (masterConfig.rxConfig.fpvCamAngleDegrees && !FLIGHT_MODE(HEADFREE_MODE)) {
+        scaleRcCommandToFpvCamAngle();
+    }
+
     if (ARMING_FLAG(ARMED)) {
         LED0_ON;
     } else {
@@ -251,7 +313,7 @@ void annexCode(void)
             DISABLE_ARMING_FLAG(OK_TO_ARM);
         }
 
-        if (isCalibrating() || isSystemOverloaded()) {
+        if (isCalibrating() || (averageWaitingTasks100 > 100)) {
             warningLedFlash();
             DISABLE_ARMING_FLAG(OK_TO_ARM);
         } else {
@@ -285,7 +347,7 @@ void mwDisarm(void)
     }
 }
 
-#define TELEMETRY_FUNCTION_MASK (FUNCTION_TELEMETRY_FRSKY | FUNCTION_TELEMETRY_HOTT | FUNCTION_TELEMETRY_SMARTPORT | FUNCTION_TELEMETRY_LTM)
+#define TELEMETRY_FUNCTION_MASK (FUNCTION_TELEMETRY_FRSKY | FUNCTION_TELEMETRY_HOTT | FUNCTION_TELEMETRY_MSP | FUNCTION_TELEMETRY_SMARTPORT)
 
 void releaseSharedTelemetryPorts(void) {
     serialPort_t *sharedPort = findSharedSerialPort(TELEMETRY_FUNCTION_MASK, FUNCTION_MSP);
@@ -417,9 +479,40 @@ void processRx(void)
 
     throttleStatus_e throttleStatus = calculateThrottleStatus(&masterConfig.rxConfig, masterConfig.flight3DConfig.deadband3d_throttle);
 
-    if (throttleStatus == THROTTLE_LOW) {
-        pidResetErrorAngle();
-        pidResetErrorGyro();
+    static bool airModeErrorResetIsEnabled = true; // Should always initialize with reset enabled
+    static uint32_t airModeErrorResetTimeout = 0;  // Timeout for both activate and deactivate mode
+
+    if (throttleStatus == THROTTLE_LOW)  {
+        // When in AIR Mode LOW Throttle and reset was already disabled we will only prevent further growing
+        if ((IS_RC_MODE_ACTIVE(BOXAIRMODE)) && !airModeErrorResetIsEnabled)  {
+            if (calculateRollPitchCenterStatus(&masterConfig.rxConfig) == CENTERED) {
+                preventItermWindup = true;    // Iterm is now limited to the last value
+            } else {
+                preventItermWindup = false;   // Iterm should considered safe to increase
+            }
+        }
+
+        // Conditions to reset Error
+        if (!ARMING_FLAG(ARMED) || feature(FEATURE_MOTOR_STOP) || ((IS_RC_MODE_ACTIVE(BOXAIRMODE)) && airModeErrorResetIsEnabled) || !IS_RC_MODE_ACTIVE(BOXAIRMODE)) {
+            ResetErrorActivated = true;                                         // As RX code is not executed each loop a flag has to be set for fast looptimes
+            airModeErrorResetTimeout = millis() + ERROR_RESET_DEACTIVATE_DELAY; // Reset de-activate timer
+            airModeErrorResetIsEnabled = true;                                  // Enable Reset again especially after Disarm
+            preventItermWindup = false;                                         // Reset limiting
+        }
+    } else {
+        if (!(feature(FEATURE_MOTOR_STOP)) && ARMING_FLAG(ARMED) && IS_RC_MODE_ACTIVE(BOXAIRMODE)) {
+            if (airModeErrorResetIsEnabled) {
+                if (millis() > airModeErrorResetTimeout && calculateRollPitchCenterStatus(&masterConfig.rxConfig) == NOT_CENTERED) {  // Only disable error reset when roll and pitch not centered
+                    airModeErrorResetIsEnabled = false;
+                    preventItermWindup = false;  // Reset limiting for Iterm
+                }
+            } else {
+                preventItermWindup = false;      // Reset limiting for Iterm
+            }
+        } else {
+            preventItermWindup = false;          // Reset limiting. Usefull when flipping between normal and AIR mode
+        }
+        ResetErrorActivated = false;             // Disable resetting of error
     }
 
     // When armed and motors aren't spinning, do beeps and then disarm
@@ -486,7 +579,6 @@ void processRx(void)
         canUseHorizonMode = false;
 
         if (!FLIGHT_MODE(ANGLE_MODE)) {
-            pidResetErrorAngle();
             ENABLE_FLIGHT_MODE(ANGLE_MODE);
         }
     } else {
@@ -498,7 +590,6 @@ void processRx(void)
         DISABLE_FLIGHT_MODE(ANGLE_MODE);
 
         if (!FLIGHT_MODE(HORIZON_MODE)) {
-            pidResetErrorAngle();
             ENABLE_FLIGHT_MODE(HORIZON_MODE);
         }
     } else {
@@ -566,39 +657,6 @@ void processRx(void)
 
 }
 
-void filterRc(void){
-    static int16_t lastCommand[4] = { 0, 0, 0, 0 };
-    static int16_t deltaRC[4] = { 0, 0, 0, 0 };
-    static int16_t factor, rcInterpolationFactor;
-    uint16_t rxRefreshRate;
-
-    // Set RC refresh rate for sampling and channels to filter
-    initRxRefreshRate(&rxRefreshRate);
-
-    rcInterpolationFactor = rxRefreshRate / filteredCycleTime + 1;
-
-    if (isRXDataNew) {
-        for (int channel=0; channel < 4; channel++) {
-            deltaRC[channel] = rcCommand[channel] -  (lastCommand[channel] - deltaRC[channel] * factor / rcInterpolationFactor);
-            lastCommand[channel] = rcCommand[channel];
-        }
-
-        isRXDataNew = false;
-        factor = rcInterpolationFactor - 1;
-    } else {
-        factor--;
-    }
-
-    // Interpolate steps of rcCommand
-    if (factor > 0) {
-        for (int channel=0; channel < 4; channel++) {
-            rcCommand[channel] = lastCommand[channel] - deltaRC[channel] * factor/rcInterpolationFactor;
-         }
-    } else {
-        factor = 0;
-    }
-}
-
 #if defined(BARO) || defined(SONAR)
 static bool haveProcessedAnnexCodeOnce = false;
 #endif
@@ -606,21 +664,11 @@ static bool haveProcessedAnnexCodeOnce = false;
 void taskMainPidLoop(void)
 {
     cycleTime = getTaskDeltaTime(TASK_SELF);
-    dT = (float)cycleTime * 0.000001f;
-
-    // Calculate average cycle time and average jitter
-    filteredCycleTime = filterApplyPt1(cycleTime, &filteredCycleTimeState, 1, dT);
-    
-    debug[0] = cycleTime;
-    debug[1] = cycleTime - filteredCycleTime;
+    dT = (float)targetLooptime * 0.000001f;
 
     imuUpdateGyroAndAttitude();
 
     annexCode();
-
-    if (masterConfig.rxConfig.rcSmoothing) {
-        filterRc();
-    }
 
 #if defined(BARO) || defined(SONAR)
     haveProcessedAnnexCodeOnce = true;
@@ -630,6 +678,10 @@ void taskMainPidLoop(void)
         if (sensors(SENSOR_MAG)) {
             updateMagHold();
         }
+#endif
+
+#ifdef GTUNE
+        updateGtuneState();
 #endif
 
 #if defined(BARO) || defined(SONAR)
@@ -668,6 +720,10 @@ void taskMainPidLoop(void)
     }
 #endif
 
+    if (ResetErrorActivated) {
+        pidResetErrorGyro();
+    }
+
     // PID - note this is function pointer set by setPIDController()
     pid_controller(
         &currentProfile->pidProfile,
@@ -696,16 +752,14 @@ void taskMainPidLoop(void)
 }
 
 // Function for loop trigger
-void taskMainPidLoopChecker(void) {
-    // getTaskDeltaTime() returns delta time freezed at the moment of entering the scheduler. currentTime is freezed at the very same point. 
+void taskMainPidLoopCheck(void) {
+    // getTaskDeltaTime() returns delta time freezed at the moment of entering the scheduler. currentTime is freezed at the very same point.
     // To make busy-waiting timeout work we need to account for time spent within busy-waiting loop
     uint32_t currentDeltaTime = getTaskDeltaTime(TASK_SELF);
 
-    if (masterConfig.gyroSync) {
-        while (1) {
-            if (gyroSyncCheckUpdate() || ((currentDeltaTime + (micros() - currentTime)) >= (targetLooptime + GYRO_WATCHDOG_DELAY))) {
-                break;
-            }
+    while (1) {
+        if (gyroSyncCheckUpdate() || ((currentDeltaTime + (micros() - currentTime)) >= (targetLooptime + GYRO_WATCHDOG_DELAY))) {
+            break;
         }
     }
 
@@ -749,9 +803,8 @@ void taskUpdateBattery(void)
     }
 }
 
-bool taskUpdateRxCheck(uint32_t currentDeltaTime)
+bool taskUpdateRxCheck(void)
 {
-    UNUSED(currentDeltaTime);
     updateRx(currentTime);
     return shouldProcessRx(currentTime);
 }

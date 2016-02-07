@@ -1,18 +1,8 @@
 /*
- * This file is part of Cleanflight.
+ * gyro_sync.c
  *
- * Cleanflight is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Cleanflight is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Cleanflight.  If not, see <http://www.gnu.org/licenses/>.
+ *  Created on: 3 aug. 2015
+ *      Author: borisb
  */
 #include <stdbool.h>
 #include <stdint.h>
@@ -28,37 +18,57 @@
 #include "drivers/accgyro.h"
 #include "drivers/gyro_sync.h"
 
+#include "sensors/sensors.h"
+#include "sensors/acceleration.h"
+
 #include "config/runtime_config.h"
 #include "config/config.h"
 
 extern gyro_t gyro;
 
 uint32_t targetLooptime;
-uint8_t mpuDividerDrops;
+static uint8_t mpuDividerDrops;
+
+bool getMpuDataStatus(gyro_t *gyro)
+{
+    bool mpuDataStatus;
+
+    gyro->intStatus(&mpuDataStatus);
+    return mpuDataStatus;
+}
 
 bool gyroSyncCheckUpdate(void) {
-    return gyro.isDataReady && gyro.isDataReady();
+    return getMpuDataStatus(&gyro);
 }
 
-void gyroUpdateSampleRate(uint32_t looptime, uint8_t lpf, uint8_t gyroSync, uint8_t gyroSyncDenominator) {
-    int gyroSamplePeriod;
+void gyroUpdateSampleRate(uint8_t lpf) {
+    int gyroSamplePeriod, gyroSyncDenominator;
 
-    if (gyroSync) {
-        if (!lpf) {
-            gyroSamplePeriod = 125;
-
+    if (!lpf) {
+        gyroSamplePeriod = 125;
+#ifdef STM32F303xC
+#ifdef COLIBRI_RACE
+        gyroSyncDenominator = 3; // Sample every 3d gyro measurement 2,6khz
+#else
+        gyroSyncDenominator = 4; // Sample every 4th gyro measurement 2khz
+#endif
+#else
+        if (!sensors(SENSOR_ACC) && !sensors(SENSOR_BARO) && !sensors(SENSOR_MAG)) {
+            gyroSyncDenominator = 4; // Sample every 4th gyro measurement 2khz
         } else {
-            gyroSamplePeriod = 1000;
+            gyroSyncDenominator = 8; // Sample every 8th gyro measurement 1khz
         }
-
-        mpuDividerDrops  = gyroSyncDenominator - 1;
-        targetLooptime = (mpuDividerDrops + 1) * gyroSamplePeriod;
+#endif
     } else {
-    	mpuDividerDrops = 0;
-    	targetLooptime = looptime;
+        gyroSamplePeriod = 1000;
+        gyroSyncDenominator = 1; // Full Sampling 1khz
     }
+
+    // calculate gyro divider and targetLooptime (expected cycleTime)
+    mpuDividerDrops  = gyroSyncDenominator - 1;
+    targetLooptime = (mpuDividerDrops + 1) * gyroSamplePeriod;
 }
 
-uint8_t gyroMPU6xxxCalculateDivider(void) {
+uint8_t gyroMPU6xxxGetDividerDrops(void) {
     return mpuDividerDrops;
 }

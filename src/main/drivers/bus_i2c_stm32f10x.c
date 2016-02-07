@@ -31,6 +31,8 @@
 
 #ifndef SOFT_I2C
 
+#define CLOCKSPEED 800000    // i2c clockspeed 400kHz default (conform specs), 800kHz  and  1200kHz (Betaflight default)
+
 // I2C2
 // SCL  PB10
 // SDA  PB11
@@ -61,11 +63,6 @@ static const i2cDevice_t i2cHardwareMap[] = {
 static I2C_TypeDef *I2Cx = NULL;
 // Copy of device index for reinit, etc purposes
 static I2CDevice I2Cx_index;
-static bool i2cOverClock;
-
-void i2cSetOverclock(uint8_t OverClock) {
-    i2cOverClock = (OverClock) ? true : false;
-}
 
 void I2C1_ER_IRQHandler(void)
 {
@@ -346,11 +343,13 @@ void i2cInit(I2CDevice index)
     i2c.I2C_DutyCycle = I2C_DutyCycle_2;
     i2c.I2C_AcknowledgedAddress = I2C_AcknowledgedAddress_7bit;
 
-    if (i2cOverClock) {
-        i2c.I2C_ClockSpeed = 800000; // 800khz Maximum speed tested on various boards without issues
-    } else {
-        i2c.I2C_ClockSpeed = 400000; // 400khz Operation according specs
-    }
+    // Overclocking i2c, test results
+    // Default speed, conform specs is 400000 (400 kHz)
+    // 2.0* :  800kHz - worked without errors
+    // 3.0* : 1200kHz - worked without errors
+    // 3.5* : 1400kHz - failed, hangup, bootpin recovery needed
+    // 4.0* : 1600kHz - failed, hangup, bootpin recovery needed
+    i2c.I2C_ClockSpeed = CLOCKSPEED;
 
     I2C_Cmd(I2Cx, ENABLE);
     I2C_Init(I2Cx, &i2c);

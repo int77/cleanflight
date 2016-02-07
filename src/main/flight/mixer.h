@@ -50,7 +50,8 @@ typedef enum mixerMode
     MIXER_ATAIL4 = 22,
     MIXER_CUSTOM = 23,
     MIXER_CUSTOM_AIRPLANE = 24,
-    MIXER_CUSTOM_TRI = 25
+    MIXER_CUSTOM_TRI = 25,
+    MIXER_QUADX_1234 = 26
 } mixerMode_e;
 
 // Custom mixer data per motor
@@ -69,7 +70,6 @@ typedef struct mixer_s {
 } mixer_t;
 
 typedef struct mixerConfig_s {
-    uint8_t pid_at_min_throttle;            // when enabled pids are used at minimum throttle
     int8_t yaw_motor_direction;
     uint16_t yaw_jump_prevention_limit;      // make limit configurable (original fixed value was 100)
 #ifdef USE_SERVOS
@@ -118,12 +118,12 @@ enum {
 typedef enum {
     SERVO_GIMBAL_PITCH = 0,
     SERVO_GIMBAL_ROLL = 1,
-    SERVO_ELEVATOR = 2,
+    SERVO_FLAPS = 2,
     SERVO_FLAPPERON_1 = 3,
     SERVO_FLAPPERON_2 = 4,
     SERVO_RUDDER = 5,
-    SERVO_THROTTLE = 6, // for internal combustion (IC) planes
-    SERVO_FLAPS = 7,
+    SERVO_ELEVATOR = 6,
+    SERVO_THROTTLE = 7, // for internal combustion (IC) planes
 
     SERVO_BICOPTER_LEFT = 4,
     SERVO_BICOPTER_RIGHT = 5,
@@ -138,8 +138,8 @@ typedef enum {
 
 } servoIndex_e; // FIXME rename to servoChannel_e
 
-#define SERVO_PLANE_INDEX_MIN SERVO_ELEVATOR
-#define SERVO_PLANE_INDEX_MAX SERVO_FLAPS
+#define SERVO_PLANE_INDEX_MIN SERVO_FLAPS
+#define SERVO_PLANE_INDEX_MAX SERVO_THROTTLE
 
 #define SERVO_DUALCOPTER_INDEX_MIN SERVO_DUALCOPTER_LEFT
 #define SERVO_DUALCOPTER_INDEX_MAX SERVO_DUALCOPTER_RIGHT

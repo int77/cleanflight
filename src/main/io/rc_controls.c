@@ -59,7 +59,6 @@
 
 #include "mw.h"
 
-
 static escAndServoConfig_t *escAndServoConfig;
 static pidProfile_t *pidProfile;
 
@@ -106,7 +105,6 @@ bool isUsingSticksForArming(void)
     return isUsingSticksToArm;
 }
 
-
 bool areSticksInApModePosition(uint16_t ap_mode)
 {
     return ABS(rcCommand[ROLL]) < ap_mode && ABS(rcCommand[PITCH]) < ap_mode;
@@ -122,10 +120,20 @@ throttleStatus_e calculateThrottleStatus(rxConfig_t *rxConfig, uint16_t deadband
     return THROTTLE_HIGH;
 }
 
+rollPitchStatus_e calculateRollPitchCenterStatus(rxConfig_t *rxConfig)
+{
+    if (((rcData[PITCH] < (rxConfig->midrc + AIRMODEDEADBAND)) && (rcData[PITCH] > (rxConfig->midrc -AIRMODEDEADBAND)))
+            && ((rcData[ROLL] < (rxConfig->midrc + AIRMODEDEADBAND)) && (rcData[ROLL] > (rxConfig->midrc -AIRMODEDEADBAND))))
+        return CENTERED;
+
+    return NOT_CENTERED;
+}
+
 void processRcStickPositions(rxConfig_t *rxConfig, throttleStatus_e throttleStatus, bool retarded_arm, bool disarm_kill_switch)
 {
     static uint8_t rcDelayCommand;      // this indicates the number of time (multiple of RC measurement at 50Hz) the sticks must be maintained to run or switch off motors
     static uint8_t rcSticks;            // this hold sticks position for command combos
+    static uint8_t rcDisarmTicks;       // this is an extra guard for disarming through switch to prevent that one frame can disarm it
     uint8_t stTmp = 0;
     int i;
 
@@ -149,6 +157,7 @@ void processRcStickPositions(rxConfig_t *rxConfig, throttleStatus_e throttleStat
     if (!isUsingSticksToArm) {
 
         if (IS_RC_MODE_ACTIVE(BOXARM)) {
+            rcDisarmTicks = 0;
             // Arming via ARM BOX
             if (throttleStatus == THROTTLE_LOW) {
                 if (ARMING_FLAG(OK_TO_ARM)) {
@@ -159,10 +168,13 @@ void processRcStickPositions(rxConfig_t *rxConfig, throttleStatus_e throttleStat
             // Disarming via ARM BOX
 
             if (ARMING_FLAG(ARMED) && rxIsReceivingSignal() && !failsafeIsActive()  ) {
-                if (disarm_kill_switch) {
-                    mwDisarm();
-                } else if (throttleStatus == THROTTLE_LOW) {
-                    mwDisarm();
+                rcDisarmTicks++;
+                if (rcDisarmTicks > 3) {
+                    if (disarm_kill_switch) {
+                        mwDisarm();
+                    } else if (throttleStatus == THROTTLE_LOW) {
+                        mwDisarm();
+                    }
                 }
             }
         }
@@ -354,44 +366,131 @@ uint8_t adjustmentStateMask = 0;
 
 #define IS_ADJUSTMENT_FUNCTION_BUSY(adjustmentIndex) (adjustmentStateMask & (1 << adjustmentIndex))
 
+// sync with adjustmentFunction_e
+static const adjustmentConfig_t defaultAdjustmentConfigs[ADJUSTMENT_FUNCTION_COUNT - 1] = {
+    {
+        .adjustmentFunction = ADJUSTMENT_RC_RATE,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_RC_EXPO,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_THROTTLE_EXPO,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_PITCH_ROLL_RATE,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_YAW_RATE,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_PITCH_ROLL_P,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_PITCH_ROLL_I,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_PITCH_ROLL_D,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_YAW_P,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_YAW_I,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_YAW_D,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_RATE_PROFILE,
+        .mode = ADJUSTMENT_MODE_SELECT,
+        .data = { .selectConfig = { .switchPositions = 3 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_PITCH_RATE,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_ROLL_RATE,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_PITCH_P,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_PITCH_I,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_PITCH_D,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_ROLL_P,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_ROLL_I,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    },
+    {
+        .adjustmentFunction = ADJUSTMENT_ROLL_D,
+        .mode = ADJUSTMENT_MODE_STEP,
+        .data = { .stepConfig = { .step = 1 }}
+    }
+};
+
+#define ADJUSTMENT_FUNCTION_CONFIG_INDEX_OFFSET 1
+
 adjustmentState_t adjustmentStates[MAX_SIMULTANEOUS_ADJUSTMENT_COUNT];
 
-void configureAdjustmentState(adjustmentRange_t *adjustmentRange) {
-    uint8_t index = adjustmentRange->adjustmentIndex;
-
+void configureAdjustment(uint8_t index, uint8_t auxSwitchChannelIndex, const adjustmentConfig_t *adjustmentConfig) {
     adjustmentState_t *adjustmentState = &adjustmentStates[index];
 
-    if (adjustmentState->range == adjustmentRange) {
+    if (adjustmentState->config == adjustmentConfig) {
+        // already configured
         return;
     }
-    adjustmentState->range = adjustmentRange;
-    adjustmentState->auxChannelIndex = adjustmentRange->auxSwitchChannelIndex;
+    adjustmentState->auxChannelIndex = auxSwitchChannelIndex;
+    adjustmentState->config = adjustmentConfig;
     adjustmentState->timeoutAt = 0;
-
-    adjustmentState->config.adjustmentFunction = adjustmentRange->adjustmentFunction;
-
-    if (adjustmentRange->adjustmentFunction == ADJUSTMENT_RATE_PROFILE) {
-        adjustmentState->config.mode = ADJUSTMENT_MODE_SELECT;
-        adjustmentState->config.data.selectConfig.switchPositions = 3;
-    } else {
-        adjustmentState->config.mode = ADJUSTMENT_MODE_STEP;
-        adjustmentState->config.data.stepConfig.step = 1;
-    }
 
     MARK_ADJUSTMENT_FUNCTION_AS_READY(index);
 }
-  
-static void setAdjustment(uint8_t* ptr, float* ptrFP, uint8_t adjustment, int delta, float factor, uint8_t min, uint8_t max) {
-  if(ptrFP != 0 && IS_PID_CONTROLLER_FP_BASED(pidProfile->pidController)) {
-    *ptrFP = constrainf((*ptrFP) + (delta / factor), PID_F_MIN, PID_F_MAX);
-    blackboxLogInflightAdjustmentEventFloat(adjustment, *ptrFP);
-  } else {
-    *ptr = constrain((int)(*ptr)+delta, min ,max);
-    blackboxLogInflightAdjustmentEvent(adjustment, *ptr);
-  }
-}
 
 void applyStepAdjustment(controlRateConfig_t *controlRateConfig, uint8_t adjustmentFunction, int delta) {
+    int newValue;
+    float newFloatValue;
 
     if (delta > 0) {
         beeperConfirmationBeeps(2);
@@ -400,126 +499,152 @@ void applyStepAdjustment(controlRateConfig_t *controlRateConfig, uint8_t adjustm
     }
     switch(adjustmentFunction) {
         case ADJUSTMENT_RC_RATE:
-            setAdjustment(&controlRateConfig->rcRate8,0,ADJUSTMENT_RC_RATE,delta,0,RC_RATE_MIN,RC_RATE_MAX);
+            newValue = constrain((int)controlRateConfig->rcRate8 + delta, 0, 250); // FIXME magic numbers repeated in serial_cli.c
+            controlRateConfig->rcRate8 = newValue;
             generatePitchRollCurve(controlRateConfig);
+            blackboxLogInflightAdjustmentEvent(ADJUSTMENT_RC_RATE, newValue);
         break;
         case ADJUSTMENT_RC_EXPO:
-            setAdjustment(&controlRateConfig->rcExpo8,0,ADJUSTMENT_RC_EXPO,delta,0,EXPO_MIN,EXPO_MAX);
+            newValue = constrain((int)controlRateConfig->rcExpo8 + delta, 0, 100); // FIXME magic numbers repeated in serial_cli.c
+            controlRateConfig->rcExpo8 = newValue;
             generatePitchRollCurve(controlRateConfig);
+            blackboxLogInflightAdjustmentEvent(ADJUSTMENT_RC_EXPO, newValue);
         break;
         case ADJUSTMENT_THROTTLE_EXPO:
-            setAdjustment(&controlRateConfig->thrExpo8,0,ADJUSTMENT_THROTTLE_EXPO,delta,0,EXPO_MIN,EXPO_MAX);
+            newValue = constrain((int)controlRateConfig->thrExpo8 + delta, 0, 100); // FIXME magic numbers repeated in serial_cli.c
+            controlRateConfig->thrExpo8 = newValue;
             generateThrottleCurve(controlRateConfig, escAndServoConfig);
+            blackboxLogInflightAdjustmentEvent(ADJUSTMENT_THROTTLE_EXPO, newValue);
         break;
         case ADJUSTMENT_PITCH_ROLL_RATE:
         case ADJUSTMENT_PITCH_RATE:
-            setAdjustment(&controlRateConfig->rates[FD_PITCH],0,ADJUSTMENT_PITCH_RATE,delta,0,0,CONTROL_RATE_CONFIG_ROLL_PITCH_RATE_MAX);
+            newValue = constrain((int)controlRateConfig->rates[FD_PITCH] + delta, 0, CONTROL_RATE_CONFIG_ROLL_PITCH_RATE_MAX);
+            controlRateConfig->rates[FD_PITCH] = newValue;
+            blackboxLogInflightAdjustmentEvent(ADJUSTMENT_PITCH_RATE, newValue);
             if (adjustmentFunction == ADJUSTMENT_PITCH_RATE) {
                 break;
             }
             // follow though for combined ADJUSTMENT_PITCH_ROLL_RATE
         case ADJUSTMENT_ROLL_RATE:
-            setAdjustment(&controlRateConfig->rates[FD_ROLL],0,ADJUSTMENT_ROLL_RATE,delta,0,0,CONTROL_RATE_CONFIG_ROLL_PITCH_RATE_MAX);
+            newValue = constrain((int)controlRateConfig->rates[FD_ROLL] + delta, 0, CONTROL_RATE_CONFIG_ROLL_PITCH_RATE_MAX);
+            controlRateConfig->rates[FD_ROLL] = newValue;
+            blackboxLogInflightAdjustmentEvent(ADJUSTMENT_ROLL_RATE, newValue);
             break;
         case ADJUSTMENT_YAW_RATE:
-            setAdjustment(&controlRateConfig->rates[FD_YAW],0,ADJUSTMENT_YAW_RATE,delta,0,0,CONTROL_RATE_CONFIG_YAW_RATE_MAX);
+            newValue = constrain((int)controlRateConfig->rates[FD_YAW] + delta, 0, CONTROL_RATE_CONFIG_YAW_RATE_MAX);
+            controlRateConfig->rates[FD_YAW] = newValue;
+            blackboxLogInflightAdjustmentEvent(ADJUSTMENT_YAW_RATE, newValue);
             break;
         case ADJUSTMENT_PITCH_ROLL_P:
         case ADJUSTMENT_PITCH_P:
-            setAdjustment(&pidProfile->P8[PIDPITCH],&pidProfile->P_f[PIDPITCH],ADJUSTMENT_PITCH_P,delta,10.0f,PID_MIN,PID_MAX);
+            if (IS_PID_CONTROLLER_FP_BASED(pidProfile->pidController)) {
+                newFloatValue = constrainf(pidProfile->P_f[PIDPITCH] + (float)(delta / 100.0f), 0, 100); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->P_f[PIDPITCH] = newFloatValue;
+                blackboxLogInflightAdjustmentEventFloat(ADJUSTMENT_PITCH_P, newFloatValue);
+            } else {
+                newValue = constrain((int)pidProfile->P8[PIDPITCH] + delta, 0, 200); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->P8[PIDPITCH] = newValue;
+                blackboxLogInflightAdjustmentEvent(ADJUSTMENT_PITCH_P, newValue);
+            }
             if (adjustmentFunction == ADJUSTMENT_PITCH_P) {
                 break;
             }
             // follow though for combined ADJUSTMENT_PITCH_ROLL_P
         case ADJUSTMENT_ROLL_P:
-            setAdjustment(&pidProfile->P8[PIDROLL],&pidProfile->P_f[PIDROLL],ADJUSTMENT_ROLL_P,delta,10.0f,PID_MIN,PID_MAX);
+            if (IS_PID_CONTROLLER_FP_BASED(pidProfile->pidController)) {
+                newFloatValue = constrainf(pidProfile->P_f[PIDROLL] + (float)(delta / 100.0f), 0, 100); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->P_f[PIDROLL] = newFloatValue;
+                blackboxLogInflightAdjustmentEventFloat(ADJUSTMENT_ROLL_P, newFloatValue);
+            } else {
+                newValue = constrain((int)pidProfile->P8[PIDROLL] + delta, 0, 200); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->P8[PIDROLL] = newValue;
+                blackboxLogInflightAdjustmentEvent(ADJUSTMENT_ROLL_P, newValue);
+            }
             break;
         case ADJUSTMENT_PITCH_ROLL_I:
         case ADJUSTMENT_PITCH_I:
-            setAdjustment(&pidProfile->I8[PIDPITCH],&pidProfile->I_f[PIDPITCH],ADJUSTMENT_PITCH_I,delta,100.0f,PID_MIN,PID_MAX);
+            if (IS_PID_CONTROLLER_FP_BASED(pidProfile->pidController)) {
+                newFloatValue = constrainf(pidProfile->I_f[PIDPITCH] + (float)(delta / 100.0f), 0, 100); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->I_f[PIDPITCH] = newFloatValue;
+                blackboxLogInflightAdjustmentEventFloat(ADJUSTMENT_PITCH_I, newFloatValue);
+            } else {
+                newValue = constrain((int)pidProfile->I8[PIDPITCH] + delta, 0, 200); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->I8[PIDPITCH] = newValue;
+                blackboxLogInflightAdjustmentEvent(ADJUSTMENT_PITCH_I, newValue);
+            }
             if (adjustmentFunction == ADJUSTMENT_PITCH_I) {
                 break;
             }
             // follow though for combined ADJUSTMENT_PITCH_ROLL_I
         case ADJUSTMENT_ROLL_I:
-           setAdjustment(&pidProfile->I8[PIDROLL],&pidProfile->I_f[PIDROLL],ADJUSTMENT_ROLL_I,delta,100.0f,PID_MIN,PID_MAX);
+            if (IS_PID_CONTROLLER_FP_BASED(pidProfile->pidController)) {
+                newFloatValue = constrainf(pidProfile->I_f[PIDROLL] + (float)(delta / 100.0f), 0, 100); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->I_f[PIDROLL] = newFloatValue;
+                blackboxLogInflightAdjustmentEventFloat(ADJUSTMENT_ROLL_I, newFloatValue);
+            } else {
+                newValue = constrain((int)pidProfile->I8[PIDROLL] + delta, 0, 200); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->I8[PIDROLL] = newValue;
+                blackboxLogInflightAdjustmentEvent(ADJUSTMENT_ROLL_I, newValue);
+            }
             break;
         case ADJUSTMENT_PITCH_ROLL_D:
         case ADJUSTMENT_PITCH_D:
-            setAdjustment(&pidProfile->D8[PIDPITCH],&pidProfile->D_f[PIDPITCH],ADJUSTMENT_PITCH_D,delta,1000.0f,PID_MIN,PID_MAX);
+            if (IS_PID_CONTROLLER_FP_BASED(pidProfile->pidController)) {
+                newFloatValue = constrainf(pidProfile->D_f[PIDPITCH] + (float)(delta / 1000.0f), 0, 100); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->D_f[PIDPITCH] = newFloatValue;
+                blackboxLogInflightAdjustmentEventFloat(ADJUSTMENT_PITCH_D, newFloatValue);
+            } else {
+                newValue = constrain((int)pidProfile->D8[PIDPITCH] + delta, 0, 200); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->D8[PIDPITCH] = newValue;
+                blackboxLogInflightAdjustmentEvent(ADJUSTMENT_PITCH_D, newValue);
+            }
             if (adjustmentFunction == ADJUSTMENT_PITCH_D) {
                 break;
             }
             // follow though for combined ADJUSTMENT_PITCH_ROLL_D
         case ADJUSTMENT_ROLL_D:
-            setAdjustment(&pidProfile->D8[PIDROLL],&pidProfile->D_f[PIDROLL],ADJUSTMENT_ROLL_D,delta,1000.0f,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_YAW_P:
-                setAdjustment(&pidProfile->P8[PIDYAW],&pidProfile->P_f[PIDYAW],ADJUSTMENT_YAW_P,delta,10.0f,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_YAW_I:
-            setAdjustment(&pidProfile->I8[PIDYAW],&pidProfile->I_f[PIDYAW],ADJUSTMENT_YAW_I,delta,100.0f,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_YAW_D:
-                setAdjustment(&pidProfile->D8[PIDYAW],&pidProfile->D_f[PIDYAW],ADJUSTMENT_YAW_D,delta,1000.0f,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_LEVEL_P:
-            setAdjustment(&pidProfile->P8[PIDLEVEL],&pidProfile->A_level,ADJUSTMENT_LEVEL_P,delta,10.0f,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_LEVEL_I:
-            setAdjustment(&pidProfile->I8[PIDLEVEL],&pidProfile->H_level,ADJUSTMENT_LEVEL_I,delta,10.0f,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_LEVEL_D:
             if (IS_PID_CONTROLLER_FP_BASED(pidProfile->pidController)) {
-              setAdjustment(&pidProfile->H_sensitivity,0,ADJUSTMENT_LEVEL_D,delta,0,PID_MIN,PID_MAX);
+                newFloatValue = constrainf(pidProfile->D_f[PIDROLL] + (float)(delta / 1000.0f), 0, 100); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->D_f[PIDROLL] = newFloatValue;
+                blackboxLogInflightAdjustmentEventFloat(ADJUSTMENT_ROLL_D, newFloatValue);
             } else {
-              setAdjustment(&pidProfile->D8[PIDLEVEL],0,ADJUSTMENT_LEVEL_D,delta,0,PID_MIN,PID_MAX);
+                newValue = constrain((int)pidProfile->D8[PIDROLL] + delta, 0, 200); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->D8[PIDROLL] = newValue;
+                blackboxLogInflightAdjustmentEvent(ADJUSTMENT_ROLL_D, newValue);
             }
             break;
-        case ADJUSTMENT_ALT_P:
-            setAdjustment(&pidProfile->P8[PIDALT],0,ADJUSTMENT_ALT_P,delta,0,PID_MIN,PID_MAX);
+        case ADJUSTMENT_YAW_P:
+            if (IS_PID_CONTROLLER_FP_BASED(pidProfile->pidController)) {
+                newFloatValue = constrainf(pidProfile->P_f[PIDYAW] + (float)(delta / 100.0f), 0, 100); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->P_f[PIDYAW] = newFloatValue;
+                blackboxLogInflightAdjustmentEventFloat(ADJUSTMENT_YAW_P, newFloatValue);
+            } else {
+                newValue = constrain((int)pidProfile->P8[PIDYAW] + delta, 0, 200); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->P8[PIDYAW] = newValue;
+                blackboxLogInflightAdjustmentEvent(ADJUSTMENT_YAW_P, newValue);
+            }
             break;
-        case ADJUSTMENT_ALT_I:
-            setAdjustment(&pidProfile->I8[PIDALT],0,ADJUSTMENT_ALT_I,delta,0,PID_MIN,PID_MAX);
+        case ADJUSTMENT_YAW_I:
+            if (IS_PID_CONTROLLER_FP_BASED(pidProfile->pidController)) {
+                newFloatValue = constrainf(pidProfile->I_f[PIDYAW] + (float)(delta / 100.0f), 0, 100); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->I_f[PIDYAW] = newFloatValue;
+                blackboxLogInflightAdjustmentEventFloat(ADJUSTMENT_YAW_I, newFloatValue);
+            } else {
+                newValue = constrain((int)pidProfile->I8[PIDYAW] + delta, 0, 200); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->I8[PIDYAW] = newValue;
+                blackboxLogInflightAdjustmentEvent(ADJUSTMENT_YAW_I, newValue);
+            }
             break;
-        case ADJUSTMENT_ALT_D:
-            setAdjustment(&pidProfile->D8[PIDALT],0,ADJUSTMENT_ALT_D,delta,0,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_POS_P:
-            setAdjustment(&pidProfile->P8[PIDPOS],0,ADJUSTMENT_POS_P,delta,0,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_POS_I:
-            setAdjustment(&pidProfile->I8[PIDPOS],0,ADJUSTMENT_POS_I,delta,0,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_POSR_P:
-            setAdjustment(&pidProfile->P8[PIDPOSR],0,ADJUSTMENT_POSR_P,delta,0,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_POSR_I:
-            setAdjustment(&pidProfile->I8[PIDPOSR],0,ADJUSTMENT_POSR_I,delta,0,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_POSR_D:
-            setAdjustment(&pidProfile->D8[PIDPOSR],0,ADJUSTMENT_POSR_D,delta,0,PID_MIN,PID_MAX);
-            break;
-       case ADJUSTMENT_NAVR_P:
-            setAdjustment(&pidProfile->P8[PIDNAVR],0,ADJUSTMENT_NAVR_P,delta,0,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_NAVR_I:
-            setAdjustment(&pidProfile->I8[PIDNAVR],0,ADJUSTMENT_NAVR_I,delta,0,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_NAVR_D:
-            setAdjustment(&pidProfile->D8[PIDNAVR],0,ADJUSTMENT_NAVR_D,delta,0,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_MAG_P:
-            setAdjustment(&pidProfile->P8[PIDMAG],0,ADJUSTMENT_MAG_P,delta,0,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_VEL_P:
-            setAdjustment(&pidProfile->P8[PIDVEL],0,ADJUSTMENT_VEL_P,delta,0,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_VEL_I:
-            setAdjustment(&pidProfile->I8[PIDVEL],0,ADJUSTMENT_VEL_I,delta,0,PID_MIN,PID_MAX);
-            break;
-        case ADJUSTMENT_VEL_D:
-            setAdjustment(&pidProfile->D8[PIDVEL],0,ADJUSTMENT_VEL_D,delta,0,PID_MIN,PID_MAX);
+        case ADJUSTMENT_YAW_D:
+            if (IS_PID_CONTROLLER_FP_BASED(pidProfile->pidController)) {
+                newFloatValue = constrainf(pidProfile->D_f[PIDYAW] + (float)(delta / 1000.0f), 0, 100); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->D_f[PIDYAW] = newFloatValue;
+                blackboxLogInflightAdjustmentEventFloat(ADJUSTMENT_YAW_D, newFloatValue);
+            } else {
+                newValue = constrain((int)pidProfile->D8[PIDYAW] + delta, 0, 200); // FIXME magic numbers repeated in serial_cli.c
+                pidProfile->D8[PIDYAW] = newValue;
+                blackboxLogInflightAdjustmentEvent(ADJUSTMENT_YAW_D, newValue);
+            }
             break;
         default:
             break;
@@ -560,7 +685,10 @@ void processRcAdjustments(controlRateConfig_t *controlRateConfig, rxConfig_t *rx
     for (adjustmentIndex = 0; adjustmentIndex < MAX_SIMULTANEOUS_ADJUSTMENT_COUNT; adjustmentIndex++) {
         adjustmentState_t *adjustmentState = &adjustmentStates[adjustmentIndex];
 
-        uint8_t adjustmentFunction = adjustmentState->config.adjustmentFunction;
+        if (!adjustmentState->config) {
+            continue;
+        }
+        uint8_t adjustmentFunction = adjustmentState->config->adjustmentFunction;
         if (adjustmentFunction == ADJUSTMENT_NONE) {
             continue;
         }
@@ -579,12 +707,12 @@ void processRcAdjustments(controlRateConfig_t *controlRateConfig, rxConfig_t *rx
 
         uint8_t channelIndex = NON_AUX_CHANNEL_COUNT + adjustmentState->auxChannelIndex;
 
-        if (adjustmentState->config.mode == ADJUSTMENT_MODE_STEP) {
+        if (adjustmentState->config->mode == ADJUSTMENT_MODE_STEP) {
             int delta;
             if (rcData[channelIndex] > rxConfig->midrc + 200) {
-                delta = adjustmentState->config.data.stepConfig.step;
+                delta = adjustmentState->config->data.stepConfig.step;
             } else if (rcData[channelIndex] < rxConfig->midrc - 200) {
-                delta = 0 - adjustmentState->config.data.stepConfig.step;
+                delta = 0 - adjustmentState->config->data.stepConfig.step;
             } else {
                 // returning the switch to the middle immediately resets the ready state
                 MARK_ADJUSTMENT_FUNCTION_AS_READY(adjustmentIndex);
@@ -596,8 +724,8 @@ void processRcAdjustments(controlRateConfig_t *controlRateConfig, rxConfig_t *rx
             }
 
             applyStepAdjustment(controlRateConfig, adjustmentFunction, delta);
-        } else if (adjustmentState->config.mode == ADJUSTMENT_MODE_SELECT) {
-            uint16_t rangeWidth = ((2100 - 900) / adjustmentState->config.data.selectConfig.switchPositions);
+        } else if (adjustmentState->config->mode == ADJUSTMENT_MODE_SELECT) {
+            uint16_t rangeWidth = ((2100 - 900) / adjustmentState->config->data.selectConfig.switchPositions);
             uint8_t position = (constrain(rcData[channelIndex], 900, 2100 - 1) - 900) / rangeWidth;
 
             applySelectAdjustment(adjustmentFunction, position);
@@ -615,7 +743,9 @@ void updateAdjustmentStates(adjustmentRange_t *adjustmentRanges)
 
         if (isRangeActive(adjustmentRange->auxChannelIndex, &adjustmentRange->range)) {
 
-            configureAdjustmentState(adjustmentRange);
+            const adjustmentConfig_t *adjustmentConfig = &defaultAdjustmentConfigs[adjustmentRange->adjustmentFunction - ADJUSTMENT_FUNCTION_CONFIG_INDEX_OFFSET];
+
+            configureAdjustment(adjustmentRange->adjustmentIndex, adjustmentRange->auxSwitchChannelIndex, adjustmentConfig);
         }
     }
 }

@@ -17,13 +17,10 @@
 
 #pragma once
 
-#define PID_LUX_FLOAT_MAX_I 250.0f
-#define PID_LUX_FLOAT_MAX_D 300.0f
-#define PID_LUX_FLOAT_MAX_PID 1000
-
 #define GYRO_I_MAX 256                      // Gyro I limiter
 #define YAW_P_LIMIT_MIN 100                 // Maximum value for yaw P limiter
 #define YAW_P_LIMIT_MAX 500                 // Maximum value for yaw P limiter
+#define IS_POSITIVE(x) ((x > 0) ? true : false)
 
 typedef enum {
     PIDROLL,
@@ -40,13 +37,12 @@ typedef enum {
 } pidIndex_e;
 
 typedef enum {
-	PID_CONTROLLER_MW23 = 0,
-    PID_CONTROLLER_MWREWRITE,
+    PID_CONTROLLER_MWREWRITE = 1,
     PID_CONTROLLER_LUX_FLOAT,
     PID_COUNT
 } pidControllerType_e;
 
-#define IS_PID_CONTROLLER_FP_BASED(pidController) (pidController == PID_CONTROLLER_LUX_FLOAT)
+#define IS_PID_CONTROLLER_FP_BASED(pidController) (pidController == 2)
 
 typedef struct pidProfile_s {
     uint8_t pidController;                  // 1 = rewrite from http://www.multiwii.com/forum/viewtopic.php?f=8&t=3671, 2 = Luggi09s new baseflight pid
@@ -62,10 +58,10 @@ typedef struct pidProfile_s {
     float H_level;
     uint8_t H_sensitivity;
 
-    uint16_t yaw_p_limit;                   // set P term limit (fixed value was 300)
-    uint8_t dterm_cut_hz;                   // (default 17Hz, Range 1-50Hz) Used for PT1 element in PID1, PID2 and PID5
-    uint8_t yaw_pterm_cut_hz;               // Used for filering Pterm noise on noisy frames
-    uint8_t gyro_soft_lpf;
+    uint16_t airModeInsaneAcrobilityFactor; // Air mode acrobility factor
+    uint8_t gyro_lpf_hz;                    // Gyro Soft filter in hz
+    uint8_t dterm_lpf_hz;                   // Delta Filter in hz
+    uint8_t deltaFromGyro;                  // Alternative delta Calculation
 
 #ifdef GTUNE
     uint8_t  gtune_lolimP[3];               // [0..200] Lower limit of P during G tune
@@ -76,10 +72,15 @@ typedef struct pidProfile_s {
 #endif
 } pidProfile_t;
 
+typedef struct airModePlus {
+    float factor;
+    float wowFactor;
+    float iTermScaler;
+} airModePlus_t;
+
 extern int16_t axisPID[XYZ_AXIS_COUNT];
 extern int32_t axisPID_P[3], axisPID_I[3], axisPID_D[3];
 
 void pidSetController(pidControllerType_e type);
-void pidResetErrorAngle(void);
 void pidResetErrorGyro(void);
 

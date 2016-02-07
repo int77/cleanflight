@@ -41,14 +41,23 @@
 //#define ENSURE_MPU_DATA_READY_IS_LOW
 
 #define GYRO
-#define USE_GYRO_MPU6050
+#define ACC
 
+#define USE_GYRO_MPU6050
 #define GYRO_MPU6050_ALIGN CW180_DEG
 
-#define ACC
 #define USE_ACC_MPU6050
 
 #define ACC_MPU6050_ALIGN CW180_DEG
+
+#define USE_GYRO_SPI_MPU6000
+#define GYRO_MPU6000_ALIGN CW180_DEG
+#define USE_ACC_SPI_MPU6000
+#define ACC_MPU6000_ALIGN CW180_DEG
+
+#define MPU6000_CS_GPIO GPIOB
+#define MPU6000_CS_PIN GPIO_Pin_12
+#define MPU6000_SPI_INSTANCE SPI2
 
 //#define BARO
 //#define USE_BARO_MS5611
@@ -113,6 +122,7 @@
 #define BLACKBOX
 #define SERIAL_RX
 //#define GPS
+#define GTUNE
 #define DISPLAY
 #define USE_SERVOS
 #define USE_FLASHFS
@@ -182,3 +192,4 @@
 #define S1W_TX_PIN          GPIO_Pin_6
 #define S1W_RX_GPIO         GPIOB
 #define S1W_RX_PIN          GPIO_Pin_7
+

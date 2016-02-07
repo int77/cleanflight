@@ -54,6 +54,22 @@ typedef struct imuRuntimeConfig_s {
     uint8_t small_angle;
 } imuRuntimeConfig_t;
 
+typedef enum {
+    ACCPROC_READ = 0,
+    ACCPROC_CHUNK_1,
+    ACCPROC_CHUNK_2,
+    ACCPROC_CHUNK_3,
+    ACCPROC_CHUNK_4,
+    ACCPROC_CHUNK_5,
+    ACCPROC_CHUNK_6,
+    ACCPROC_CHUNK_7,
+    ACCPROC_COPY
+} accProcessorState_e;
+
+typedef struct accProcessor_s {
+    accProcessorState_e state;
+} accProcessor_t;
+
 void imuConfigure(
     imuRuntimeConfig_t *initialImuRuntimeConfig,
     pidProfile_t *initialPidProfile,
@@ -62,6 +78,7 @@ void imuConfigure(
     uint16_t throttle_correction_angle
 );
 
+void calculateEstimatedAltitude(uint32_t currentTime);
 void imuUpdateAccelerometer(rollAndPitchTrims_t *accelerometerTrims);
 void imuUpdateGyroAndAttitude(void);
 float calculateThrottleAngleScale(uint16_t throttle_correction_angle);
@@ -70,6 +87,6 @@ float calculateAccZLowPassFilterRCTimeConstant(float accz_lpf_cutoff);
 
 int16_t imuCalculateHeading(t_fp_vector *vec);
 
-float getCosTiltAngle(void);
-
 void imuResetAccelerationSum(void);
+void imuUpdateGyro(void);
+void imuUpdateAcc(rollAndPitchTrims_t *accelerometerTrims);

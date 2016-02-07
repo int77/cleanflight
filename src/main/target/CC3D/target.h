@@ -27,6 +27,7 @@
 #define INVERTER_PERIPHERAL RCC_APB2Periph_GPIOB
 #define INVERTER_USART USART1
 
+
 #define BEEP_GPIO GPIOA
 #define BEEP_PIN Pin_15 // PA15 (Beeper)
 #define BEEP_PERIPHERAL RCC_APB2Periph_GPIOA
@@ -44,7 +45,7 @@
 
 #define USABLE_TIMER_CHANNEL_COUNT 12
 
-//#define DEBUG_MPU_DATA_READY_INTERRUPT
+#define DEBUG_MPU_DATA_READY_INTERRUPT
 #define USE_MPU_DATA_READY_SIGNAL
 
 #define GYRO
@@ -57,10 +58,14 @@
 
 #define ACC_MPU6000_ALIGN CW270_DEG
 
+// MPU6000 interrupts
+#define USE_MPU_DATA_READY_SIGNAL
+
 // External I2C BARO
 #define BARO
 #define USE_BARO_MS5611
 #define USE_BARO_BMP085
+#define USE_BARO_BMP280
 
 // External I2C MAG
 #define MAG
@@ -112,8 +117,6 @@
 #define LED_STRIP_TIMER TIM3
 
 #define BLACKBOX
-#define ENABLE_BLACKBOX_LOGGING_ON_SPIFLASH_BY_DEFAULT
-
 #define TELEMETRY
 #define SERIAL_RX
 #define SONAR
@@ -131,7 +134,18 @@
 #define S1W_RX_GPIO         GPIOB
 #define S1W_RX_PIN          GPIO_Pin_11
 
+#undef DISPLAY
+#undef SONAR
+#if defined(OPBL) && defined(USE_SERIAL_1WIRE)
+#undef BARO
+//#undef BLACKBOX
+#undef GPS
+#endif
+#define SKIP_CLI_COMMAND_HELP
+
 #define SPEKTRUM_BIND
 // USART3, PB11 (Flexport)
 #define BIND_PORT  GPIOB
 #define BIND_PIN   Pin_11
+
+#define USE_QUATERNION

@@ -62,12 +62,12 @@ void usb1WireInitialize()
 {
     escCount = 0;
     memset(&escHardware,0,sizeof(escHardware));
-    pwmIOConfiguration_t *pwmIOConfiguration = pwmGetOutputConfiguration();
-    for (volatile uint8_t i = 0; i < pwmIOConfiguration->ioCount; i++) {
-        if ((pwmIOConfiguration->ioConfigurations[i].flags & PWM_PF_MOTOR) == PWM_PF_MOTOR) {
-            if(motor[pwmIOConfiguration->ioConfigurations[i].index] > 0) {
-                escHardware[escCount].gpio = pwmIOConfiguration->ioConfigurations[i].timerHardware->gpio;
-                escHardware[escCount].pin = pwmIOConfiguration->ioConfigurations[i].timerHardware->pin;
+    pwmOutputConfiguration_t *pwmOutputConfiguration = pwmGetOutputConfiguration();
+    for (volatile uint8_t i = 0; i < pwmOutputConfiguration->outputCount; i++) {
+        if ((pwmOutputConfiguration->portConfigurations[i].flags & PWM_PF_MOTOR) == PWM_PF_MOTOR) {
+            if(motor[pwmOutputConfiguration->portConfigurations[i].index] >0 ) {
+                escHardware[escCount].gpio = pwmOutputConfiguration->portConfigurations[i].timerHardware->gpio;
+                escHardware[escCount].pin = pwmOutputConfiguration->portConfigurations[i].timerHardware->pin;
                 escHardware[escCount].pinpos = GetPinPos(escHardware[escCount].pin);
                 gpio_set_mode(escHardware[escCount].gpio,escHardware[escCount].pin, Mode_IPU); //GPIO_Mode_IPU
                 escCount++;
@@ -82,23 +82,23 @@ static volatile uint32_t in_cr_mask, out_cr_mask;
 static __IO uint32_t *cr;
 static void gpio_prep_vars(uint32_t escIndex)
 {
-    GPIO_TypeDef *gpio = escHardware[escIndex].gpio;
-    uint32_t pinpos = escHardware[escIndex].pinpos;
-    // mask out extra bits from pinmode, leaving just CNF+MODE
-    uint32_t inmode = Mode_IPU & 0x0F;
-    uint32_t outmode = (Mode_Out_PP & 0x0F) | Speed_10MHz;
-    // reference CRL or CRH, depending whether pin number is 0..7 or 8..15
-    cr = &gpio->CRL + (pinpos / 8);
-    // offset to CNF and MODE portions of CRx register
-    uint32_t shift = (pinpos % 8) * 4;
-    // Read out current CRx value
-    in_cr_mask = out_cr_mask = *cr;
-    // Mask out 4 bits
-    in_cr_mask &= ~(0xF << shift);
-    out_cr_mask &= ~(0xF << shift);
-    // save current pinmode
-    in_cr_mask |= inmode << shift;
-    out_cr_mask |= outmode << shift;
+     GPIO_TypeDef *gpio = escHardware[escIndex].gpio;
+     uint32_t pinpos = escHardware[escIndex].pinpos;
+     // mask out extra bits from pinmode, leaving just CNF+MODE
+     uint32_t inmode = Mode_IPU & 0x0F;
+     uint32_t outmode = (Mode_Out_PP & 0x0F) | Speed_10MHz;
+     // reference CRL or CRH, depending whether pin number is 0..7 or 8..15
+     cr = &gpio->CRL + (pinpos / 8);
+     // offset to CNF and MODE portions of CRx register
+     uint32_t shift = (pinpos % 8) * 4;
+     // Read out current CRx value
+     in_cr_mask = out_cr_mask = *cr;
+     // Mask out 4 bits
+     in_cr_mask &= ~(0xF << shift);
+     out_cr_mask &= ~(0xF << shift);
+     // save current pinmode
+     in_cr_mask |= inmode << shift;
+     out_cr_mask |= outmode << shift;
 }
 
 static void gpioSetOne(uint32_t escIndex, GPIO_Mode mode) {

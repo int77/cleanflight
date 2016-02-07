@@ -69,12 +69,6 @@ static I2C_TypeDef *I2Cx = NULL;
 // I2C TimeoutUserCallback
 ///////////////////////////////////////////////////////////////////////////////
 
-static bool i2cOverClock;
-
-void i2cSetOverclock(uint8_t OverClock) {
-    i2cOverClock = (OverClock) ? true : false;
-}
-
 uint32_t i2cTimeoutUserCallback(I2C_TypeDef *I2Cx)
 {
     if (I2Cx == I2C1) {
@@ -124,12 +118,10 @@ void i2cInitPort(I2C_TypeDef *I2Cx)
         I2C_InitStructure.I2C_OwnAddress1 = 0x00;
         I2C_InitStructure.I2C_Ack = I2C_Ack_Enable;
         I2C_InitStructure.I2C_AcknowledgedAddress = I2C_AcknowledgedAddress_7bit;
-        if (i2cOverClock) {
-            I2C_InitStructure.I2C_Timing = 0x00500E30; // 1000 Khz, 72Mhz Clock, Analog Filter Delay ON, Setup 40, Hold 4.
-        } else {
-            I2C_InitStructure.I2C_Timing = 0x00E0257A; // 400 Khz, 72Mhz Clock, Analog Filter Delay ON, Rise 100, Fall 10
-        }
-        //I2C_InitStructure.I2C_Timing              = 0x8000050B;
+
+        //I2C_InitStructure.I2C_Timing = 0x00E0257A; // 400 Khz, 72Mhz Clock, Analog Filter Delay ON, Setup 100, Hold 10.
+        //I2C_InitStructure.I2C_Timing = 0x0070123D; // 800 Khz, 72Mhz Clock, Analog Filter Delay ON, Setup 50, Hold 5.
+        I2C_InitStructure.I2C_Timing = 0x00500E30; // 1000 Khz, 72Mhz Clock, Analog Filter Delay ON, Setup 40, Hold 4.
 
         I2C_Init(I2C1, &I2C_InitStructure);
 
@@ -170,18 +162,9 @@ void i2cInitPort(I2C_TypeDef *I2Cx)
         I2C_InitStructure.I2C_Ack = I2C_Ack_Enable;
         I2C_InitStructure.I2C_AcknowledgedAddress = I2C_AcknowledgedAddress_7bit;
 
-        // FIXME timing is board specific
-        //I2C_InitStructure.I2C_Timing = 0x00310309; // //400kHz I2C @ 8MHz input -> PRESC=0x0, SCLDEL=0x3, SDADEL=0x1, SCLH=0x03, SCLL=0x09 - value from TauLabs/Sparky
-        // ^ when using this setting and after a few seconds of a scope probe being attached to the I2C bus it was observed that the bus enters
-        // a busy state and does not recover.
-
-        if (i2cOverClock) {
-            I2C_InitStructure.I2C_Timing = 0x00500E30; // 1000 Khz, 72Mhz Clock, Analog Filter Delay ON, Setup 40, Hold 4.
-        } else {
-            I2C_InitStructure.I2C_Timing = 0x00E0257A; // 400 Khz, 72Mhz Clock, Analog Filter Delay ON, Rise 100, Fall 10
-        }
-
-        //I2C_InitStructure.I2C_Timing              = 0x8000050B;
+        //I2C_InitStructure.I2C_Timing = 0x00E0257A; // 400 Khz, 72Mhz Clock, Analog Filter Delay ON, Setup 100, Hold 10.
+        //I2C_InitStructure.I2C_Timing = 0x0070123D; // 800 Khz, 72Mhz Clock, Analog Filter Delay ON, Setup 50, Hold 5.
+        I2C_InitStructure.I2C_Timing = 0x00500E30; // 1000 Khz, 72Mhz Clock, Analog Filter Delay ON, Setup 40, Hold 4.
 
         I2C_Init(I2C2, &I2C_InitStructure);
 

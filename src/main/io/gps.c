@@ -90,8 +90,6 @@ uint8_t GPS_svinfo_cno[GPS_SV_MAXSATS];     // Carrier to Noise Ratio (Signal St
 
 static gpsConfig_t *gpsConfig;
 
-uint32_t GPS_garbageByteCount = 0;
-
 // GPS timeout for wrong baud rate/disconnection/etc in milliseconds (default 2.5second)
 #define GPS_TIMEOUT (2500)
 // How many entries in gpsInitData array below
@@ -239,8 +237,10 @@ void gpsInit(serialConfig_t *initialSerialConfig, gpsConfig_t *initialGpsConfig)
 
     portMode_t mode = MODE_RXTX;
     // only RX is needed for NMEA-style GPS
+#ifndef COLIBRI_RACE
     if (gpsConfig->provider == GPS_NMEA)
 	    mode &= ~MODE_TX;
+#endif
 
     // no callback - buffer will be consumed in gpsThread()
     gpsPort = openSerialPort(gpsPortConfig->identifier, FUNCTION_GPS, NULL, gpsInitData[gpsData.baudrateIndex].baudrateIndex, mode, SERIAL_NOT_INVERTED);
@@ -255,11 +255,49 @@ void gpsInit(serialConfig_t *initialSerialConfig, gpsConfig_t *initialGpsConfig)
 
 void gpsInitNmea(void)
 {
+#ifdef COLIBRI_RACE
+	uint32_t now;
+#endif
     switch(gpsData.state) {
         case GPS_INITIALIZING:
+#ifdef COLIBRI_RACE
+		   now = millis();
+		   if (now - gpsData.state_ts < 1000)
+			   return;
+		   gpsData.state_ts = now;
+		   if (gpsData.state_position < 1) {
+			   serialSetBaudRate(gpsPort, 4800);
+			   gpsData.state_position++;
+		   } else if (gpsData.state_position < 2) {
+			   // print our FIXED init string for the baudrate we want to be at
+			   serialPrint(gpsPort, "$PSRF100,1,115200,8,1,0*05\r\n");
+			   gpsData.state_position++;
+		   } else {
+			   // we're now (hopefully) at the correct rate, next state will switch to it
+			   gpsSetState(GPS_CHANGE_BAUD);
+		   }
+		   break;
+#endif
         case GPS_CHANGE_BAUD:
+#ifdef COLIBRI_RACE
+		   now = millis();
+		   if (now - gpsData.state_ts < 1000)
+			   return;
+		   gpsData.state_ts = now;
+		   if (gpsData.state_position < 1) {
+			   serialSetBaudRate(gpsPort, baudRates[gpsInitData[gpsData.baudrateIndex].baudrateIndex]);
+			   gpsData.state_position++;
+		   } else if (gpsData.state_position < 2) {
+			   serialPrint(gpsPort, "$PSRF103,00,6,00,0*23\r\n");
+			   gpsData.state_position++;
+		   } else {
+#else
             serialSetBaudRate(gpsPort, baudRates[gpsInitData[gpsData.baudrateIndex].baudrateIndex]);
+#endif
             gpsSetState(GPS_RECEIVING_DATA);
+#ifdef COLIBRI_RACE
+		   }
+#endif
             break;
     }
 }
@@ -844,8 +882,7 @@ static bool _new_speed;
 
 // from the UBlox6 document, the largest payout we receive i the NAV-SVINFO and the payload size
 // is calculated as 8 + 12*numCh.  numCh in the case of a Glonass receiver is 28.
-#define MAX_UBLOX_PAYLOAD_SIZE 344
-#define UBLOX_BUFFER_SIZE MAX_UBLOX_PAYLOAD_SIZE
+#define UBLOX_PAYLOAD_SIZE 344
 
 
 // Receive buffer
@@ -855,7 +892,7 @@ static union {
     ubx_nav_solution solution;
     ubx_nav_velned velned;
     ubx_nav_svinfo svinfo;
-    uint8_t bytes[UBLOX_BUFFER_SIZE];
+    uint8_t bytes[UBLOX_PAYLOAD_SIZE];
 } _buffer;
 
 void _update_checksum(uint8_t *data, uint8_t len, uint8_t *ck_a, uint8_t *ck_b)
@@ -944,8 +981,6 @@ static bool gpsNewFrameUBLOX(uint8_t data)
             if (PREAMBLE1 == data) {
                 _skip_packet = false;
                 _step++;
-            } else {
-                GPS_garbageByteCount++;
             }
             break;
         case 1: // Sync char 2 (0x62)
@@ -973,38 +1008,23 @@ static bool gpsNewFrameUBLOX(uint8_t data)
         case 5: // Payload length (part 2)
             _step++;
             _ck_b += (_ck_a += data);       // checksum byte
-            _payload_length |= (uint16_t)(data << 8);
-
-            if (_payload_length > MAX_UBLOX_PAYLOAD_SIZE ) {
-                // we can't receive the whole packet, just log the error and start searching for the next packet.
-                shiftPacketLog();
-                *gpsPacketLogChar = LOG_SKIPPED;
-                gpsData.errors++;
-                _step = 0;
-                break;
-            }
-
-            if (_payload_length > UBLOX_BUFFER_SIZE) {
+            _payload_length += (uint16_t)(data << 8);
+            if (_payload_length > UBLOX_PAYLOAD_SIZE) {
                 _skip_packet = true;
             }
-
-            // prepare to receive payload
-            _payload_counter = 0;
-
+            _payload_counter = 0;   // prepare to receive payload
             if (_payload_length == 0) {
                 _step = 7;
             }
             break;
         case 6:
             _ck_b += (_ck_a += data);       // checksum byte
-            if (_payload_counter < UBLOX_BUFFER_SIZE) {
+            if (_payload_counter < UBLOX_PAYLOAD_SIZE) {
                 _buffer.bytes[_payload_counter] = data;
             }
-            // NOTE: check counter BEFORE increasing so that a payload_size of 65535 is correctly handled.  This can happen if garbage data is received.
-            if (_payload_counter ==  _payload_length - 1) {
+            if (++_payload_counter >= _payload_length) {
                 _step++;
             }
-            _payload_counter++;
             break;
         case 7:
             _step++;
@@ -1065,8 +1085,7 @@ void gpsEnablePassthrough(serialPort_t *gpsPassthroughPort)
         }
         if (serialRxBytesWaiting(gpsPassthroughPort)) {
             LED1_ON;
-            c = serialRead(gpsPassthroughPort);
-            serialWrite(gpsPort, c);
+            serialWrite(gpsPort, serialRead(gpsPassthroughPort));
             LED1_OFF;
         }
 #ifdef DISPLAY

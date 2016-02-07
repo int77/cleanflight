@@ -22,8 +22,8 @@
 #endif
 
 // Undefine this for use libc sinf/cosf. Keep this defined to use fast sin/cos approximations
-#define FAST_TRIGONOMETRY               // order 9 approximation
-//#define EVEN_FASTER_TRIGONOMETRY      // order 7 approximation
+#define FAST_MATH             // order 9 approximation
+#define VERY_FAST_MATH      // order 7 approximation
 
 // Use floating point M_PI instead explicitly.
 #define M_PIf       3.14159265358979323846f
@@ -87,6 +87,11 @@ int32_t quickMedianFilter3(int32_t * v);
 int32_t quickMedianFilter5(int32_t * v);
 int32_t quickMedianFilter7(int32_t * v);
 int32_t quickMedianFilter9(int32_t * v);
+
+float quickMedianFilter3f(float * v);
+float quickMedianFilter5f(float * v);
+float quickMedianFilter7f(float * v);
+float quickMedianFilter9f(float * v);
 
 #if defined(FAST_MATH) || defined(VERY_FAST_MATH)
 float sin_approx(float x);

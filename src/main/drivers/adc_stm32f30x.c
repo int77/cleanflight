@@ -30,8 +30,6 @@
 #include "adc.h"
 #include "adc_impl.h"
 
-#ifdef USE_ADC
-
 #ifndef ADC_INSTANCE
 #define ADC_INSTANCE                ADC1
 #define ADC_AHB_PERIPHERAL          RCC_AHBPeriph_DMA1
@@ -180,4 +178,3 @@ void adcInit(drv_adc_config_t *init)
     ADC_StartConversion(ADC_INSTANCE);
 }
 
-#endif

@@ -27,6 +27,8 @@
 
 #include "drivers/system.h"
 
+//#define SCHEDULER_DEBUG
+
 cfTaskId_e currentTaskId = TASK_NONE;
 
 static uint32_t totalWaitingTasks;
@@ -34,11 +36,196 @@ static uint32_t totalWaitingTasksSamples;
 static uint32_t realtimeGuardInterval;
 
 uint32_t currentTime = 0;
-uint16_t averageSystemLoadPercent = 0;
+uint16_t averageWaitingTasks100 = 0;
+
+typedef struct {
+    /* Configuration */
+    const char * taskName;
+    bool (*checkFunc)(uint32_t currentDeltaTime);
+    void (*taskFunc)(void);
+    bool isEnabled;
+    uint32_t desiredPeriod;     // target period of execution
+    uint8_t staticPriority;     // dynamicPriority grows in steps of this size, shouldn't be zero
+
+    /* Scheduling */
+    uint8_t dynamicPriority;    // measurement of how old task was last executed, used to avoid task starvation
+    uint32_t lastExecutedAt;    // last time of invocation
+    uint32_t lastSignaledAt;    // time of invocation event for event-driven tasks
+    uint16_t taskAgeCycles;
+
+    /* Statistics */
+    uint32_t averageExecutionTime;  // Moving averate over 6 samples, used to calculate guard interval
+    uint32_t taskLatestDeltaTime;   //
+#ifndef SKIP_TASK_STATISTICS
+    uint32_t maxExecutionTime;
+    uint32_t totalExecutionTime;    // total time consumed by task since boot
+#endif
+} cfTask_t;
+
+void taskMainPidLoopCheck(void);
+void taskUpdateAccelerometer(void);
+void taskHandleSerial(void);
+void taskUpdateBeeper(void);
+void taskUpdateBattery(void);
+bool taskUpdateRxCheck(uint32_t currentDeltaTime);
+void taskUpdateRxMain(void);
+void taskProcessGPS(void);
+void taskUpdateCompass(void);
+void taskUpdateBaro(void);
+void taskUpdateSonar(void);
+void taskCalculateAltitude(void);
+void taskUpdateDisplay(void);
+void taskTelemetry(void);
+void taskLedStrip(void);
+void taskSystem(void);
+#ifdef USE_BST
+void taskBstReadWrite(void);
+void taskBstMasterProcess(void);
+#endif
+
+static cfTask_t cfTasks[TASK_COUNT] = {
+    [TASK_SYSTEM] = {
+        .isEnabled = true,
+        .taskName = "SYSTEM",
+        .taskFunc = taskSystem,
+        .desiredPeriod = 1000000 / 10,              // run every 100 ms
+        .staticPriority = TASK_PRIORITY_HIGH,
+    },
+
+    [TASK_GYROPID] = {
+        .taskName = "GYRO/PID",
+        .taskFunc = taskMainPidLoopCheck,
+        .desiredPeriod = 1000,
+        .staticPriority = TASK_PRIORITY_REALTIME,
+    },
+
+    [TASK_ACCEL] = {
+        .taskName = "ACCEL",
+        .taskFunc = taskUpdateAccelerometer,
+        .desiredPeriod = 1000000 / 100,
+        .staticPriority = TASK_PRIORITY_MEDIUM,
+    },
+
+    [TASK_SERIAL] = {
+        .taskName = "SERIAL",
+        .taskFunc = taskHandleSerial,
+        .desiredPeriod = 1000000 / 100,     // 100 Hz should be enough to flush up to 115 bytes @ 115200 baud
+        .staticPriority = TASK_PRIORITY_LOW,
+    },
+
+    [TASK_BEEPER] = {
+        .taskName = "BEEPER",
+        .taskFunc = taskUpdateBeeper,
+        .desiredPeriod = 1000000 / 100,     // 100 Hz
+        .staticPriority = TASK_PRIORITY_MEDIUM,
+    },
+
+    [TASK_BATTERY] = {
+        .taskName = "BATTERY",
+        .taskFunc = taskUpdateBattery,
+        .desiredPeriod = 1000000 / 50,      // 50 Hz
+        .staticPriority = TASK_PRIORITY_MEDIUM,
+    },
+
+    [TASK_RX] = {
+        .taskName = "RX",
+        .checkFunc = taskUpdateRxCheck,
+        .taskFunc = taskUpdateRxMain,
+        .desiredPeriod = 1000000 / 50,      // If event-based scheduling doesn't work, fallback to periodic scheduling
+        .staticPriority = TASK_PRIORITY_HIGH,
+    },
+
+#ifdef GPS
+    [TASK_GPS] = {
+        .taskName = "GPS",
+        .taskFunc = taskProcessGPS,
+        .desiredPeriod = 1000000 / 10,      // GPS usually don't go raster than 10Hz
+        .staticPriority = TASK_PRIORITY_MEDIUM,
+    },
+#endif
+
+#ifdef MAG
+    [TASK_COMPASS] = {
+        .taskName = "COMPASS",
+        .taskFunc = taskUpdateCompass,
+        .desiredPeriod = 1000000 / 10,      // Compass is updated at 10 Hz
+        .staticPriority = TASK_PRIORITY_MEDIUM,
+    },
+#endif
+
+#ifdef BARO
+    [TASK_BARO] = {
+        .taskName = "BARO",
+        .taskFunc = taskUpdateBaro,
+        .desiredPeriod = 1000000 / 20,
+        .staticPriority = TASK_PRIORITY_MEDIUM,
+    },
+#endif
+
+#ifdef SONAR
+    [TASK_SONAR] = {
+        .taskName = "SONAR",
+        .taskFunc = taskUpdateSonar,
+        .desiredPeriod = 1000000 / 20,
+        .staticPriority = TASK_PRIORITY_MEDIUM,
+    },
+#endif
+
+#if defined(BARO) || defined(SONAR)
+    [TASK_ALTITUDE] = {
+        .taskName = "ALTITUDE",
+        .taskFunc = taskCalculateAltitude,
+        .desiredPeriod = 1000000 / 40,
+        .staticPriority = TASK_PRIORITY_MEDIUM,
+    },
+#endif
+
+#ifdef DISPLAY
+    [TASK_DISPLAY] = {
+        .taskName = "DISPLAY",
+        .taskFunc = taskUpdateDisplay,
+        .desiredPeriod = 1000000 / 10,
+        .staticPriority = TASK_PRIORITY_LOW,
+    },
+#endif
+
+#ifdef TELEMETRY
+    [TASK_TELEMETRY] = {
+        .taskName = "TELEMETRY",
+        .taskFunc = taskTelemetry,
+        .desiredPeriod = 1000000 / 250,         // 250 Hz
+        .staticPriority = TASK_PRIORITY_IDLE,
+    },
+#endif
+
+#ifdef LED_STRIP
+    [TASK_LEDSTRIP] = {
+        .taskName = "LEDSTRIP",
+        .taskFunc = taskLedStrip,
+        .desiredPeriod = 1000000 / 100,         // 100 Hz
+        .staticPriority = TASK_PRIORITY_IDLE,
+    },
+#endif
+
+#ifdef USE_BST
+    [TASK_BST_READ_WRITE] = {
+        .taskName = "BST_MASTER_WRITE",
+        .taskFunc = taskBstReadWrite,
+        .desiredPeriod = 1000000 / 500,         // 500 Hz
+        .staticPriority = TASK_PRIORITY_HIGH,
+    },
+
+    [TASK_BST_MASTER_PROCESS] = {
+        .taskName = "BST_MASTER_PROCESS",
+        .taskFunc = taskBstMasterProcess,
+        .desiredPeriod = 1000000 / 50,          // 50 Hz
+        .staticPriority = TASK_PRIORITY_IDLE,
+    },
+#endif
+};
 
 #define REALTIME_GUARD_INTERVAL_MIN     10
 #define REALTIME_GUARD_INTERVAL_MAX     300
-#define REALTIME_GUARD_INTERVAL_MARGIN  25
 
 void taskSystem(void)
 {
@@ -46,7 +233,7 @@ void taskSystem(void)
 
     /* Calculate system load */
     if (totalWaitingTasksSamples > 0) {
-        averageSystemLoadPercent = 100 * totalWaitingTasks / totalWaitingTasksSamples;
+        averageWaitingTasks100 = 100 * totalWaitingTasks / totalWaitingTasksSamples;
         totalWaitingTasksSamples = 0;
         totalWaitingTasks = 0;
     }
@@ -59,7 +246,7 @@ void taskSystem(void)
         }
     }
 
-    realtimeGuardInterval = constrain(maxNonRealtimeTaskTime, REALTIME_GUARD_INTERVAL_MIN, REALTIME_GUARD_INTERVAL_MAX) + REALTIME_GUARD_INTERVAL_MARGIN;
+    realtimeGuardInterval = constrain(maxNonRealtimeTaskTime, REALTIME_GUARD_INTERVAL_MIN, REALTIME_GUARD_INTERVAL_MAX);
 #if defined SCHEDULER_DEBUG
     debug[2] = realtimeGuardInterval;
 #endif

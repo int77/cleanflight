@@ -17,8 +17,6 @@
 
 #pragma once
 
-//#define SCHEDULER_DEBUG
-
 typedef enum {
     TASK_PRIORITY_IDLE = 0,     // Disables dynamic scheduling, task is executed only if no other task is active this cycle
     TASK_PRIORITY_LOW = 1,
@@ -35,6 +33,7 @@ typedef struct {
     uint8_t      staticPriority;
     uint32_t     maxExecutionTime;
     uint32_t     totalExecutionTime;
+    uint32_t     lastExecutionTime;
     uint32_t     averageExecutionTime;
 } cfTaskInfo_t;
 
@@ -71,6 +70,10 @@ typedef enum {
 #ifdef LED_STRIP
     TASK_LEDSTRIP,
 #endif
+#ifdef USE_BST
+    TASK_BST_READ_WRITE,
+    TASK_BST_MASTER_PROCESS,
+#endif
 
     /* Count of real tasks */
     TASK_COUNT,
@@ -80,33 +83,8 @@ typedef enum {
     TASK_SELF
 } cfTaskId_e;
 
-typedef struct {
-    /* Configuration */
-    const char * taskName;
-    bool (*checkFunc)(uint32_t currentDeltaTime);
-    void (*taskFunc)(void);
-    bool isEnabled;
-    uint32_t desiredPeriod;     // target period of execution
-    uint8_t staticPriority;     // dynamicPriority grows in steps of this size, shouldn't be zero
-
-    /* Scheduling */
-    uint8_t dynamicPriority;    // measurement of how old task was last executed, used to avoid task starvation
-    uint32_t lastExecutedAt;    // last time of invocation
-    uint32_t lastSignaledAt;    // time of invocation event for event-driven tasks
-    uint16_t taskAgeCycles;
-
-    /* Statistics */
-    uint32_t averageExecutionTime;  // Moving averate over 6 samples, used to calculate guard interval
-    uint32_t taskLatestDeltaTime;   //
-#ifndef SKIP_TASK_STATISTICS
-    uint32_t maxExecutionTime;
-    uint32_t totalExecutionTime;    // total time consumed by task since boot
-#endif
-} cfTask_t;
-
-extern cfTask_t cfTasks[TASK_COUNT];
 extern uint16_t cpuLoad;
-extern uint16_t averageSystemLoadPercent;
+extern uint16_t averageWaitingTasks100;
 
 void getTaskInfo(cfTaskId_e taskId, cfTaskInfo_t * taskInfo);
 void rescheduleTask(cfTaskId_e taskId, uint32_t newPeriodMicros);
@@ -114,5 +92,3 @@ void setTaskEnabled(cfTaskId_e taskId, bool newEnabledState);
 uint32_t getTaskDeltaTime(cfTaskId_e taskId);
 
 void scheduler(void);
-
-#define isSystemOverloaded() (averageSystemLoadPercent >= 100)

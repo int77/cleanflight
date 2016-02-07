@@ -45,6 +45,7 @@
 #include "drivers/pwm_rx.h"
 #include "drivers/adc.h"
 #include "drivers/bus_i2c.h"
+#include "drivers/bus_bst.h"
 #include "drivers/bus_spi.h"
 #include "drivers/inverter.h"
 #include "drivers/flash_m25p16.h"
@@ -53,6 +54,7 @@
 
 #include "rx/rx.h"
 
+#include "io/beeper.h"
 #include "io/serial.h"
 #include "io/flashfs.h"
 #include "io/gps.h"
@@ -106,13 +108,13 @@ void serialInit(serialConfig_t *initialSerialConfig, bool softserialEnabled);
 void mspInit(serialConfig_t *serialConfig);
 void cliInit(serialConfig_t *serialConfig);
 void failsafeInit(rxConfig_t *intialRxConfig, uint16_t deadband3d_throttle);
-pwmIOConfiguration_t *pwmInit(drv_pwm_config_t *init);
+pwmOutputConfiguration_t *pwmInit(drv_pwm_config_t *init);
 #ifdef USE_SERVOS
 void mixerInit(mixerMode_e mixerMode, motorMixer_t *customMotorMixers, servoMixer_t *customServoMixers);
 #else
 void mixerInit(mixerMode_e mixerMode, motorMixer_t *customMotorMixers);
 #endif
-void mixerUsePWMIOConfiguration(pwmIOConfiguration_t *pwmIOConfiguration);
+void mixerUsePWMOutputConfiguration(pwmOutputConfiguration_t *pwmOutputConfiguration);
 void rxInit(rxConfig_t *rxConfig, modeActivationCondition_t *modeActivationConditions);
 void gpsInit(serialConfig_t *serialConfig, gpsConfig_t *initialGpsConfig);
 void navigationInit(gpsProfile_t *initialGpsProfile, pidProfile_t *pidProfile);
@@ -169,7 +171,7 @@ void init(void)
     // Configure the Flash Latency cycles and enable prefetch buffer
     SetSysClock(masterConfig.emf_avoidance);
 #endif
-    i2cSetOverclock(masterConfig.i2c_overclock);
+    //i2cSetOverclock(masterConfig.i2c_overclock);
 
 #ifdef USE_HARDWARE_REVISION_DETECTION
     detectHardwareRevision();
@@ -256,22 +258,21 @@ void init(void)
 #endif
 
     pwm_params.useOneshot = feature(FEATURE_ONESHOT125);
+    pwm_params.useFastPWM = masterConfig.use_fast_pwm ? true : false;
     pwm_params.motorPwmRate = masterConfig.motor_pwm_rate;
     pwm_params.idlePulse = masterConfig.escAndServoConfig.mincommand;
     if (feature(FEATURE_3D))
         pwm_params.idlePulse = masterConfig.flight3DConfig.neutral3d;
-    if (pwm_params.motorPwmRate > 500)
+    if (pwm_params.motorPwmRate > 500 && !masterConfig.use_fast_pwm)
         pwm_params.idlePulse = 0; // brushed motors
-
+#ifdef CC3D
+    pwm_params.useBuzzerP6 = masterConfig.use_buzzer_p6 ? true : false;
+#endif
     pwmRxInit(masterConfig.inputFilteringMode);
 
-    // pwmInit() needs to be called as soon as possible for ESC compatibility reasons
-    pwmIOConfiguration_t *pwmIOConfiguration = pwmInit(&pwm_params);
+    pwmOutputConfiguration_t *pwmOutputConfiguration = pwmInit(&pwm_params);
 
-    mixerUsePWMIOConfiguration(pwmIOConfiguration);
-
-    debug[2] = pwmIOConfiguration->pwmInputCount;
-    debug[3] = pwmIOConfiguration->ppmInputCount;
+    mixerUsePWMOutputConfiguration(pwmOutputConfiguration);
 
     if (!feature(FEATURE_ONESHOT125))
         motorControlEnable = true;
@@ -291,12 +292,20 @@ void init(void)
         .isInverted = false
 #endif
     };
+#ifdef AFROMINI
+    beeperConfig.gpioMode = Mode_Out_PP;   // AFROMINI override
+    beeperConfig.isInverted = true;
+#endif
 #ifdef NAZE
     if (hardwareRevision >= NAZE32_REV5) {
         // naze rev4 and below used opendrain to PNP for buzzer. Rev5 and above use PP to NPN.
         beeperConfig.gpioMode = Mode_Out_PP;
         beeperConfig.isInverted = true;
     }
+#endif
+#ifdef CC3D
+    if (masterConfig.use_buzzer_p6 == 1)
+        beeperConfig.gpioPin = Pin_2;
 #endif
 
     beeperInit(&beeperConfig);
@@ -305,6 +314,11 @@ void init(void)
 #ifdef INVERTER
     initInverter();
 #endif
+
+#ifdef USE_BST
+    bstInit(BST_DEVICE);
+#endif
+
 
 
 #ifdef USE_SPI
@@ -376,10 +390,7 @@ void init(void)
     }
 #endif
 
-    if (!sensorsAutodetect(&masterConfig.sensorAlignmentConfig, masterConfig.gyro_lpf,
-        masterConfig.acc_hardware, masterConfig.mag_hardware, masterConfig.baro_hardware, currentProfile->mag_declination,
-        masterConfig.looptime, masterConfig.gyroSync, masterConfig.gyroSyncDenominator)) {
-
+    if (!sensorsAutodetect(&masterConfig.sensorAlignmentConfig,masterConfig.acc_hardware, masterConfig.mag_hardware, masterConfig.baro_hardware, currentProfile->mag_declination, masterConfig.gyro_lpf)) {
         // if gyro was not detected due to whatever reason, we give up now.
         failureMode(FAILURE_MISSING_ACC);
     }
@@ -534,15 +545,26 @@ int main(void) {
     init();
 
     /* Setup scheduler */
-    if (masterConfig.gyroSync) {
-        rescheduleTask(TASK_GYROPID, targetLooptime - INTERRUPT_WAIT_TIME);
-    }
-    else {
-        rescheduleTask(TASK_GYROPID, targetLooptime);
-    }
+    rescheduleTask(TASK_GYROPID, targetLooptime - INTERRUPT_WAIT_TIME);
 
     setTaskEnabled(TASK_GYROPID, true);
-    setTaskEnabled(TASK_ACCEL, sensors(SENSOR_ACC));
+    if(sensors(SENSOR_ACC)) {
+        uint32_t accTargetLooptime = 0;
+        setTaskEnabled(TASK_ACCEL, true);
+        switch(targetLooptime) {
+            case(500):
+                accTargetLooptime = 10000;
+                break;
+            default:
+            case(1000):
+#ifdef STM32F10X
+                accTargetLooptime = 3000;
+#else
+                accTargetLooptime = 1000;
+#endif
+        }
+        rescheduleTask(TASK_ACCEL, accTargetLooptime);
+    }
     setTaskEnabled(TASK_SERIAL, true);
     setTaskEnabled(TASK_BEEPER, true);
     setTaskEnabled(TASK_BATTERY, feature(FEATURE_VBAT) || feature(FEATURE_CURRENT_METER));
@@ -570,6 +592,10 @@ int main(void) {
 #endif
 #ifdef LED_STRIP
     setTaskEnabled(TASK_LEDSTRIP, feature(FEATURE_LED_STRIP));
+#endif
+#ifdef USE_BST
+    setTaskEnabled(TASK_BST_READ_WRITE, true);
+    setTaskEnabled(TASK_BST_MASTER_PROCESS, true);
 #endif
 
     while (1) {

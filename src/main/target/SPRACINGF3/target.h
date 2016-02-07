@@ -49,6 +49,8 @@
 
 #define BARO
 #define USE_BARO_MS5611
+#define USE_BARO_BMP085
+#define USE_BARO_BMP280
 
 #define MAG
 #define USE_MAG_AK8975
@@ -157,8 +159,6 @@
 #define WS2811_IRQ                      DMA1_Channel2_IRQn
 
 #define BLACKBOX
-#define ENABLE_BLACKBOX_LOGGING_ON_SPIFLASH_BY_DEFAULT
-
 #define DISPLAY
 #define GPS
 #define GTUNE
