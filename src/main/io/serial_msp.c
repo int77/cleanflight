@@ -667,10 +667,14 @@ static bool processOutCommand(uint8_t cmdMSP)
             serialize16(rcData[i]);
         break;
     case MSP_ATTITUDE:
-        headSerialReply(6);
+        //headSerialReply(6);
+    	headSerialReply(12);
         serialize16(attitude.values.roll);
         serialize16(attitude.values.pitch);
         serialize16(DECIDEGREES_TO_DEGREES(attitude.values.yaw));
+        serialize16(gravity.X);
+        serialize16(gravity.Y);
+        serialize16(gravity.Z);
         break;
     case MSP_ALTITUDE:
         headSerialReply(6);

@@ -41,6 +41,15 @@ typedef union {
 
 extern attitudeEulerAngles_t attitude;
 
+typedef struct {
+	// estimated gravity vector in multiples of 0.001*g 		1g = 1000
+    int16_t X;
+    int16_t Y;
+    int16_t Z;
+} attitudeEstGravity_t;
+
+extern attitudeEstGravity_t gravity;
+
 typedef struct accDeadband_s {
     uint8_t xy;                 // set the acc deadband for xy-Axis
     uint8_t z;                  // set the acc deadband for z-Axis, this ignores small accelerations
