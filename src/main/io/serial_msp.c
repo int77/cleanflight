@@ -668,7 +668,7 @@ static bool processOutCommand(uint8_t cmdMSP)
         break;
     case MSP_ATTITUDE:
         //headSerialReply(6);
-    	headSerialReply(12);
+        headSerialReply(12);
         serialize16(attitude.values.roll);
         serialize16(attitude.values.pitch);
         serialize16(DECIDEGREES_TO_DEGREES(attitude.values.yaw));
