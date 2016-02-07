@@ -11,6 +11,8 @@
 #
 
 ###############################################################################
+
+
 # Things that the user might override on the commandline
 #
 
@@ -19,6 +21,9 @@ TARGET		?= NAZE
 
 # Compile-time options
 OPTIONS		?=
+
+# compile for OpenPilot BootLoader support
+OPBL ?=no
 
 # Debugger optons, must be empty or GDB
 DEBUG ?=
@@ -33,20 +38,35 @@ FLASH_SIZE ?=
 # Things that need to be maintained as the source changes
 #
 
-FORKNAME			 = cleanflight
+FORKNAME			 = betaflight
 
-VALID_TARGETS	 = ALIENWIIF1 ALIENWIIF3 CC3D CHEBUZZF3 CJMCU COLIBRI_RACE EUSTM32F103RC MOTOLAB NAZE NAZE32PRO OLIMEXINO PORT103R RMDO SPARKY SPRACINGF3 STM32F3DISCOVERY 
+CC3D_TARGETS = CC3D CC3D_OPBL
+
+VALID_TARGETS	 = NAZE NAZE32PRO OLIMEXINO STM32F3DISCOVERY CHEBUZZF3 $(CC3D_TARGETS) CJMCU EUSTM32F103RC SPRACINGF3 PORT103R SPARKY ALIENWIIF1 ALIENWIIF3 COLIBRI_RACE MOTOLAB RMDO IRCFUSIONF3 AFROMINI
+
+# Valid targets for OP VCP support
+VCP_VALID_TARGETS = $(CC3D_TARGETS)
+
+# Valid targets for OP BootLoader support
+OPBL_VALID_TARGETS = CC3D_OPBL
+
+64K_TARGETS  = CJMCU
+128K_TARGETS = ALIENWIIF1 $(CC3D_TARGETS) NAZE OLIMEXINO RMDO AFROMINI
+256K_TARGETS = EUSTM32F103RC PORT103R STM32F3DISCOVERY CHEBUZZF3 NAZE32PRO SPRACINGF3 IRCFUSIONF3 SPARKY ALIENWIIF3 COLIBRI_RACE MOTOLAB
+
+F3_TARGETS = STM32F3DISCOVERY CHEBUZZF3 NAZE32PRO SPRACINGF3 IRCFUSIONF3 SPARKY ALIENWIIF3 COLIBRI_RACE MOTOLAB RMDO
+
 
 # Configure default flash sizes for the targets
 ifeq ($(FLASH_SIZE),)
-ifeq ($(TARGET),$(filter $(TARGET),CJMCU))
+ifeq ($(TARGET),$(filter $(TARGET),$(64K_TARGETS)))
 FLASH_SIZE = 64
-else ifeq ($(TARGET),$(filter $(TARGET),ALIENWIIF1 CC3D NAZE OLIMEXINO RMDO))
+else ifeq ($(TARGET),$(filter $(TARGET),$(128K_TARGETS)))
 FLASH_SIZE = 128
-else ifeq ($(TARGET),$(filter $(TARGET),ALIENWIIF3 CHEBUZZF3 COLIBRI_RACE EUSTM32F103RC MOTOLAB NAZE32PRO PORT103R SPARKY SPRACINGF3 STM32F3DISCOVERY))
+else ifeq ($(TARGET),$(filter $(TARGET),$(256K_TARGETS)))
 FLASH_SIZE = 256
 else
-$(error FLASH_SIZE not configured for target)
+$(error FLASH_SIZE not configured for target $(TARGET))
 endif
 endif
 
@@ -66,9 +86,9 @@ VPATH		:= $(SRC_DIR):$(SRC_DIR)/startup
 USBFS_DIR	= $(ROOT)/lib/main/STM32_USB-FS-Device_Driver
 USBPERIPH_SRC = $(notdir $(wildcard $(USBFS_DIR)/src/*.c))
 
-CSOURCES        := $(shell find $(SRC_DIR) -name '*.c')
+ifeq ($(TARGET),$(filter $(TARGET),$(F3_TARGETS)))
 
-ifeq ($(TARGET),$(filter $(TARGET),ALIENWIIF3 CHEBUZZF3 COLIBRI_RACE MOTOLAB NAZE32PRO RMDO SPARKY SPRACINGF3 STM32F3DISCOVERY))
+CSOURCES        := $(shell find $(SRC_DIR) -name '*.c')
 
 STDPERIPH_DIR	= $(ROOT)/lib/main/STM32F30x_StdPeriph_Driver
 
@@ -92,7 +112,7 @@ INCLUDE_DIRS := $(INCLUDE_DIRS) \
 		   $(CMSIS_DIR)/CM1/CoreSupport \
 		   $(CMSIS_DIR)/CM1/DeviceSupport/ST/STM32F30x
 
-ifneq ($(TARGET),SPRACINGF3)
+ifneq ($(TARGET),$(filter $(TARGET),SPRACINGF3 IRCFUSIONF3))
 INCLUDE_DIRS := $(INCLUDE_DIRS) \
 		   $(USBFS_DIR)/inc \
 		   $(ROOT)/src/main/vcp
@@ -100,7 +120,7 @@ INCLUDE_DIRS := $(INCLUDE_DIRS) \
 VPATH := $(VPATH):$(USBFS_DIR)/src
 
 DEVICE_STDPERIPH_SRC := $(DEVICE_STDPERIPH_SRC)\
-		   $(USBPERIPH_SRC)
+		   $(USBPERIPH_SRC) 
 
 endif
 
@@ -111,11 +131,11 @@ DEVICE_FLAGS = -DSTM32F303xC -DSTM32F303
 TARGET_FLAGS = -D$(TARGET)
 ifeq ($(TARGET),CHEBUZZF3)
 # CHEBUZZ is a VARIANT of STM32F3DISCOVERY
-TARGET_FLAGS := $(TARGET_FLAGS) -DSTM32F3DISCOVERY
+TARGET_FLAGS := $(TARGET_FLAGS) -DSTM32F3DISCOVERY 
 endif
 
-ifeq ($(TARGET),RMDO)
-# RMDO is a VARIANT of SPRACINGF3
+ifeq ($(TARGET),$(filter $(TARGET),RMDO IRCFUSIONF3))
+# RMDO and IRCFUSIONF3 are a VARIANT of SPRACINGF3
 TARGET_FLAGS := $(TARGET_FLAGS) -DSPRACINGF3
 endif
 
@@ -174,7 +194,7 @@ INCLUDE_DIRS := $(INCLUDE_DIRS) \
 
 DEVICE_STDPERIPH_SRC = $(STDPERIPH_SRC)
 
-ifeq ($(TARGET),CC3D)
+ifeq ($(TARGET),$(filter $(TARGET), $(VCP_VALID_TARGETS)))
 INCLUDE_DIRS := $(INCLUDE_DIRS) \
 		   $(USBFS_DIR)/inc \
 		   $(ROOT)/src/main/vcp
@@ -182,7 +202,7 @@ INCLUDE_DIRS := $(INCLUDE_DIRS) \
 VPATH := $(VPATH):$(USBFS_DIR)/src
 
 DEVICE_STDPERIPH_SRC := $(DEVICE_STDPERIPH_SRC) \
-		   $(USBPERIPH_SRC)
+		   $(USBPERIPH_SRC) 
 
 endif
 
@@ -207,6 +227,31 @@ TARGET_FLAGS := $(TARGET_FLAGS) -DNAZE -DALIENWII32
 TARGET_DIR = $(ROOT)/src/main/target/NAZE
 endif
 
+ifeq ($(TARGET),$(filter $(TARGET), $(CC3D_TARGETS)))
+TARGET_FLAGS := $(TARGET_FLAGS) -DCC3D 
+TARGET_DIR = $(ROOT)/src/main/target/CC3D
+endif
+
+ifneq ($(filter $(TARGET),$(OPBL_VALID_TARGETS)),)
+OPBL=yes
+endif
+
+ifeq ($(OPBL),yes)
+ifneq ($(filter $(TARGET),$(OPBL_VALID_TARGETS)),)
+TARGET_FLAGS := -DOPBL $(TARGET_FLAGS)
+LD_SCRIPT	 = $(LINKER_DIR)/stm32_flash_f103_$(FLASH_SIZE)k_opbl.ld
+.DEFAULT_GOAL := binary
+else
+$(error OPBL specified with a unsupported target)
+endif
+endif
+
+ifeq ($(TARGET),AFROMINI)
+# AFROMINI is a VARIANT of NAZE being recognized as rev4, but needs to use rev5 config
+TARGET_FLAGS := $(TARGET_FLAGS) -DNAZE -DAFROMINI
+TARGET_DIR = $(ROOT)/src/main/target/NAZE
+endif
+
 INCLUDE_DIRS := $(INCLUDE_DIRS) \
 		    $(TARGET_DIR)
 
@@ -224,7 +269,6 @@ COMMON_SRC = build_config.c \
 		   common/encoding.c \
 		   common/filter.c \
 		   scheduler.c \
-           scheduler_tasks.c \
 		   main.c \
 		   mw.c \
 		   flight/altitudehold.c \
@@ -275,8 +319,8 @@ HIGHEND_SRC = \
 		   telemetry/telemetry.c \
 		   telemetry/frsky.c \
 		   telemetry/hott.c \
+		   telemetry/msp.c \
 		   telemetry/smartport.c \
-		   telemetry/ltm.c \
 		   sensors/sonar.c \
 		   sensors/barometer.c \
 		   blackbox/blackbox.c \
@@ -305,6 +349,7 @@ NAZE_SRC = startup_stm32f10x_md_gcc.S \
 		   drivers/adc.c \
 		   drivers/adc_stm32f10x.c \
 		   drivers/barometer_bmp085.c \
+		   drivers/barometer_bmp280.c \
 		   drivers/barometer_ms5611.c \
 		   drivers/barometer_bmp280.c \
 		   drivers/bus_spi.c \
@@ -335,6 +380,8 @@ NAZE_SRC = startup_stm32f10x_md_gcc.S \
 
 ALIENWIIF1_SRC = $(NAZE_SRC)
 
+AFROMINI_SRC = $(NAZE_SRC)
+
 EUSTM32F103RC_SRC = startup_stm32f10x_hd_gcc.S \
 		   drivers/accgyro_adxl345.c \
 		   drivers/accgyro_bma280.c \
@@ -348,6 +395,7 @@ EUSTM32F103RC_SRC = startup_stm32f10x_hd_gcc.S \
 		   drivers/adc.c \
 		   drivers/adc_stm32f10x.c \
 		   drivers/barometer_bmp085.c \
+		   drivers/barometer_bmp280.c \
 		   drivers/barometer_ms5611.c \
 		   drivers/bus_i2c_stm32f10x.c \
 		   drivers/bus_spi.c \
@@ -383,6 +431,7 @@ OLIMEXINO_SRC = startup_stm32f10x_md_gcc.S \
 		   drivers/adc.c \
 		   drivers/adc_stm32f10x.c \
 		   drivers/barometer_bmp085.c \
+		   drivers/barometer_bmp280.c \
 		   drivers/bus_i2c_stm32f10x.c \
 		   drivers/bus_spi.c \
 		   drivers/compass_hmc5883l.c \
@@ -436,6 +485,7 @@ CC3D_SRC = \
 		   drivers/adc.c \
 		   drivers/adc_stm32f10x.c \
 		   drivers/barometer_bmp085.c \
+		   drivers/barometer_bmp280.c \
 		   drivers/barometer_ms5611.c \
 		   drivers/bus_spi.c \
 		   drivers/bus_i2c_stm32f10x.c \
@@ -507,6 +557,7 @@ STM32F3DISCOVERY_SRC = \
 		   drivers/accgyro_mpu6050.c \
 		   drivers/accgyro_l3g4200d.c \
 		   drivers/barometer_ms5611.c \
+		   drivers/barometer_bmp280.c \
 		   drivers/compass_ak8975.c \
 		   $(HIGHEND_SRC) \
 		   $(COMMON_SRC)
@@ -518,6 +569,8 @@ CHEBUZZF3_SRC = \
 
 COLIBRI_RACE_SRC = \
 		   $(STM32F30x_COMMON_SRC) \
+		   io/i2c_bst.c \
+		   drivers/bus_bst_stm32f30x.c \
 		   drivers/display_ug2864hsweg01.c \
 		   drivers/accgyro_mpu.c \
 		   drivers/accgyro_mpu6500.c \
@@ -537,9 +590,9 @@ SPARKY_SRC = \
 		   drivers/accgyro_mpu.c \
 		   drivers/accgyro_mpu6050.c \
 		   drivers/barometer_ms5611.c \
+		   drivers/barometer_bmp280.c \
 		   drivers/compass_ak8975.c \
 		   drivers/serial_usb_vcp.c \
-		   drivers/sonar_hcsr04.c \
 		   $(HIGHEND_SRC) \
 		   $(COMMON_SRC) \
 		   $(VCP_SRC)
@@ -566,6 +619,24 @@ SPRACINGF3_SRC = \
 		   drivers/accgyro_mpu6050.c \
 		   drivers/barometer_ms5611.c \
 		   drivers/compass_ak8975.c \
+		   drivers/barometer_bmp085.c \
+		   drivers/barometer_bmp280.c \
+		   drivers/compass_hmc5883l.c \
+		   drivers/display_ug2864hsweg01.h \
+		   drivers/flash_m25p16.c \
+		   drivers/serial_softserial.c \
+		   drivers/sonar_hcsr04.c \
+		   io/flashfs.c \
+		   $(HIGHEND_SRC) \
+		   $(COMMON_SRC)
+		   
+IRCFUSIONF3_SRC = \
+		   $(STM32F30x_COMMON_SRC) \
+		   drivers/accgyro_mpu.c \
+		   drivers/accgyro_mpu6050.c \
+		   drivers/barometer_ms5611.c \
+		   drivers/compass_ak8975.c \
+		   drivers/barometer_bmp085.c \
 		   drivers/compass_hmc5883l.c \
 		   drivers/display_ug2864hsweg01.h \
 		   drivers/flash_m25p16.c \
@@ -578,10 +649,11 @@ SPRACINGF3_SRC = \
 MOTOLAB_SRC = \
 		   $(STM32F30x_COMMON_SRC) \
 		   drivers/accgyro_mpu.c \
+		   drivers/display_ug2864hsweg01.c \
 		   drivers/accgyro_mpu6050.c \
+		   drivers/accgyro_spi_mpu6000.c \
 		   drivers/barometer_ms5611.c \
 		   drivers/compass_hmc5883l.c \
-		   drivers/display_ug2864hsweg01.c \
 		   drivers/serial_usb_vcp.c \
 		   drivers/flash_m25p16.c \
 		   io/flashfs.c \
@@ -668,6 +740,8 @@ ifeq ($(filter $(TARGET),$(VALID_TARGETS)),)
 $(error Target '$(TARGET)' is not valid, must be one of $(VALID_TARGETS))
 endif
 
+CC3D_OPBL_SRC     = $(CC3D_SRC)
+
 TARGET_BIN	 = $(BIN_DIR)/$(FORKNAME)_$(TARGET).bin
 TARGET_HEX	 = $(BIN_DIR)/$(FORKNAME)_$(TARGET).hex
 TARGET_ELF	 = $(OBJECT_DIR)/$(FORKNAME)_$(TARGET).elf
@@ -676,24 +750,50 @@ TARGET_DEPS	 = $(addsuffix .d,$(addprefix $(OBJECT_DIR)/$(TARGET)/,$(basename $(
 TARGET_MAP	 = $(OBJECT_DIR)/$(FORKNAME)_$(TARGET).map
 
 
-## Default make goal:
-## hex         : Make filetype hex only
-.DEFAULT_GOAL := hex
+ifeq ($(OPBL),yes)
+CLEAN_ARTIFACTS := $(TARGET_BIN)
+else
+CLEAN_ARTIFACTS := $(TARGET_HEX)
+endif
+CLEAN_ARTIFACTS += $(TARGET_ELF) $(TARGET_OBJS) $(TARGET_MAP) 
 
-## Optional make goals:
-## all         : Make all filetypes, binary and hex
-all: hex bin
+# List of buildable ELF files and their object dependencies.
+# It would be nice to compute these lists, but that seems to be just beyond make.
 
-## bin         : Make binary filetype
-## binary      : Make binary filtype
-## hex         : Make hex filetype
-bin:    $(TARGET_BIN)
-binary: $(TARGET_BIN)
-hex:    $(TARGET_HEX)
+$(TARGET_HEX): $(TARGET_ELF)
+	$(OBJCOPY) -O ihex --set-start 0x8000000 $< $@
+
+$(TARGET_BIN): $(TARGET_ELF)
+	$(OBJCOPY) -O binary $< $@
+
+$(TARGET_ELF):  $(TARGET_OBJS)
+	$(CC) -o $@ $^ $(LDFLAGS)
+	$(SIZE) $(TARGET_ELF) 
+
+# Compile
+$(OBJECT_DIR)/$(TARGET)/%.o: %.c
+	@mkdir -p $(dir $@)
+	@echo %% $(notdir $<)
+	@$(CC) -c -o $@ $(CFLAGS) $<
+
+# Assemble
+$(OBJECT_DIR)/$(TARGET)/%.o: %.s
+	@mkdir -p $(dir $@)
+	@echo %% $(notdir $<)
+	@$(CC) -c -o $@ $(ASFLAGS) $<
+
+$(OBJECT_DIR)/$(TARGET)/%.o: %.S
+	@mkdir -p $(dir $@)
+	@echo %% $(notdir $<)
+	@$(CC) -c -o $@ $(ASFLAGS) $<
+
+
+## all         : default task; compile C code, build firmware
+all: binary
 
 ## clean       : clean up all temporary / machine-generated files
 clean:
-	rm -f $(TARGET_BIN) $(TARGET_HEX) $(TARGET_ELF) $(TARGET_OBJS) $(TARGET_MAP)
+	rm -f $(CLEAN_ARTIFACTS)
 	rm -rf $(OBJECT_DIR)/$(TARGET)
 	cd src/test && $(MAKE) clean || true
 
@@ -710,6 +810,9 @@ st-flash_$(TARGET): $(TARGET_BIN)
 
 ## st-flash    : flash firmware (.bin) onto flight controller
 st-flash: st-flash_$(TARGET)
+
+binary: $(TARGET_BIN)
+hex:    $(TARGET_HEX)
 
 unbrick_$(TARGET): $(TARGET_HEX)
 	stty -F $(SERIAL_DEVICE) raw speed 115200 -crtscts cs8 -parenb -cstopb -ixon
@@ -731,7 +834,7 @@ help: Makefile
 	@echo "Makefile for the $(FORKNAME) firmware"
 	@echo ""
 	@echo "Usage:"
-	@echo "        make [goal] [TARGET=<target>] [OPTIONS=\"<options>\"]"
+	@echo "        make [TARGET=<target>] [OPTIONS=\"<options>\"]"
 	@echo ""
 	@echo "Valid TARGET values are: $(VALID_TARGETS)"
 	@echo ""
@@ -743,38 +846,6 @@ test:
 
 # rebuild everything when makefile changes
 $(TARGET_OBJS) : Makefile
-
-# List of buildable ELF files and their object dependencies.
-# It would be nice to compute these lists, but that seems to be just beyond make.
-
-$(TARGET_HEX): $(TARGET_ELF)
-	$(OBJCOPY) -O ihex --set-start 0x8000000 $< $@
-
-$(TARGET_BIN): $(TARGET_ELF)
-	$(OBJCOPY) -O binary $< $@
-
-$(TARGET_ELF):  $(TARGET_OBJS)
-	$(CC) -o $@ $^ $(LDFLAGS)
-	$(SIZE) $(TARGET_ELF)
-
-# Compile
-$(OBJECT_DIR)/$(TARGET)/%.o: %.c
-	@mkdir -p $(dir $@)
-	@echo %% $(notdir $<)
-	@$(CC) -c -o $@ $(CFLAGS) $<
-
-# Assemble
-$(OBJECT_DIR)/$(TARGET)/%.o: %.s
-	@mkdir -p $(dir $@)
-	@echo %% $(notdir $<)
-	@$(CC) -c -o $@ $(ASFLAGS) $<
-
-$(OBJECT_DIR)/$(TARGET)/%.o: %.S
-	@mkdir -p $(dir $@)
-	@echo %% $(notdir $<)
-	@$(CC) -c -o $@ $(ASFLAGS) $<
-
-
 
 # include auto-generated dependencies
 -include $(TARGET_DEPS)
